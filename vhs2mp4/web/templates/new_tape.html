@@ -1,0 +1,61 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<section>
+  <h2>Add Tape</h2>
+  <p>Use this form to register a tape before processing.</p>
+  {% if error %}
+    <article class="alert">{{ error }}</article>
+  {% endif %}
+  <form method="post">
+    <label>
+      Title
+      <input type="text" name="title" value="{{ form.title or '' }}" required />
+    </label>
+    <label>
+      Source Label (optional)
+      <input type="text" name="source_label" value="{{ form.source_label or '' }}" />
+    </label>
+    <fieldset>
+      <legend>Date Type</legend>
+      <label>
+        <input type="radio" name="date_type" value="exact" {% if form.date_type == 'exact' %}checked{% endif %} />
+        Exact
+      </label>
+      <label>
+        <input type="radio" name="date_type" value="range" {% if form.date_type == 'range' %}checked{% endif %} />
+        Range
+      </label>
+      <label>
+        <input type="radio" name="date_type" value="unknown" {% if form.date_type in ['unknown', None] %}checked{% endif %} />
+        Unknown
+      </label>
+    </fieldset>
+    <div id="date-exact">
+      <label>
+        Exact Date (YYYY-MM-DD)
+        <input type="date" name="date_exact" value="{{ form.date_exact or '' }}" />
+      </label>
+    </div>
+    <div id="date-range">
+      <label>
+        Start Date (YYYY-MM-DD)
+        <input type="date" name="date_start" value="{{ form.date_start or '' }}" />
+      </label>
+      <label>
+        End Date (YYYY-MM-DD)
+        <input type="date" name="date_end" value="{{ form.date_end or '' }}" />
+      </label>
+    </div>
+    <label>
+      <input type="checkbox" name="date_locked" {% if form.date_locked %}checked{% endif %} />
+      Lock Date (you are confident this date is correct)
+    </label>
+    <label>
+      Notes
+      <textarea name="notes" rows="4">{{ form.notes or '' }}</textarea>
+    </label>
+    <button type="submit">Create Tape</button>
+  </form>
+</section>
+{% endblock %}
