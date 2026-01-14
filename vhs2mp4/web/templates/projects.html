@@ -1,0 +1,65 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<section>
+  <h2>Projects</h2>
+  <p>Select an active project or create a new one. The active project scopes all tapes,
+  review items, and storage paths.</p>
+  {% if error %}
+    <article role="alert">{{ error }}</article>
+  {% endif %}
+</section>
+
+<section>
+  <h3>Create project</h3>
+  <form method="post" action="{{ url_for('create_project') }}">
+    <label for="name">Project name</label>
+    <input type="text" id="name" name="name" placeholder="Client name or collection" required />
+    <button type="submit">Create &amp; Activate</button>
+  </form>
+</section>
+
+<section>
+  <h3>Existing projects</h3>
+  {% if projects %}
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Slug</th>
+          <th>Created</th>
+          <th>Status</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for project in projects %}
+          <tr>
+            <td>{{ project.name }}</td>
+            <td>{{ project.slug }}</td>
+            <td>{{ project.created_at }}</td>
+            <td>
+              {% if active_project == project.slug %}
+                <strong>Active</strong>
+              {% else %}
+                Inactive
+              {% endif %}
+            </td>
+            <td>
+              {% if active_project == project.slug %}
+                <span>Current</span>
+              {% else %}
+                <form method="post" action="{{ url_for('activate_project', slug=project.slug) }}">
+                  <button type="submit">Activate</button>
+                </form>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p>No projects yet. Create one to get started.</p>
+  {% endif %}
+</section>
+{% endblock %}

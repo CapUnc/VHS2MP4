@@ -5,27 +5,147 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-from flask import Flask, redirect, render_template, request, url_for
+from flask import Flask, g, redirect, render_template, request, url_for
 
-from vhs2mp4.config import get_paths
-from vhs2mp4.db import get_connection, init_db
+from vhs2mp4.config import (
+    ensure_project_dirs,
+    get_global_paths,
+    get_project_paths,
+    slugify_project_name,
+)
+from vhs2mp4.db import (
+    get_active_project,
+    get_global_connection,
+    get_project_connection,
+    init_global_db,
+    init_project_db,
+    set_active_project,
+)
 from vhs2mp4.logging_setup import setup_logging
 
 
 def create_app() -> Flask:
     """Application factory for VHS2MP4."""
 
-    paths = get_paths()
-    setup_logging(paths.logs_dir)
-    init_db()
+    global_paths = get_global_paths()
+    setup_logging(global_paths.logs_dir)
+    init_global_db()
+
+    active_project = get_active_project()
+    if active_project:
+        project_paths = ensure_project_dirs(active_project)
+        setup_logging(project_paths["logs_dir"])
+        init_project_db(active_project)
 
     app = Flask(__name__)
+
+    @app.before_request
+    def ensure_active_project_loaded() -> None | str:
+        """Load active project and redirect if needed."""
+
+        g.active_project = get_active_project()
+        if g.active_project:
+            g.project_paths = get_project_paths(g.active_project)
+        else:
+            g.project_paths = None
+        allowed_endpoints = {"projects", "create_project", "activate_project", "static"}
+        if request.endpoint in allowed_endpoints or request.endpoint is None:
+            return None
+        if g.active_project is None:
+            return redirect(url_for("projects"))
+        return None
+
+    @app.route("/projects")
+    def projects() -> str:
+        """List available projects and show the active project."""
+
+        conn = get_global_connection()
+        projects = conn.execute(
+            "SELECT id, name, slug, created_at FROM projects ORDER BY created_at DESC"
+        ).fetchall()
+        conn.close()
+        return render_template(
+            "projects.html",
+            projects=projects,
+            active_project=g.active_project,
+        )
+
+    @app.route("/projects", methods=["POST"])
+    def create_project() -> str:
+        """Create a new project and activate it."""
+
+        name = request.form.get("name", "").strip()
+        slug = slugify_project_name(name)
+        conn = get_global_connection()
+        projects = conn.execute(
+            "SELECT id, name, slug, created_at FROM projects ORDER BY created_at DESC"
+        ).fetchall()
+        if not name:
+            conn.close()
+            return render_template(
+                "projects.html",
+                projects=projects,
+                active_project=g.active_project,
+                error="Project name is required.",
+            )
+        if not slug:
+            conn.close()
+            return render_template(
+                "projects.html",
+                projects=projects,
+                active_project=g.active_project,
+                error="Project name must include alphanumeric characters.",
+            )
+        existing = conn.execute(
+            "SELECT 1 FROM projects WHERE slug = ?", (slug,)
+        ).fetchone()
+        if existing:
+            conn.close()
+            return render_template(
+                "projects.html",
+                projects=projects,
+                active_project=g.active_project,
+                error=f"Project slug '{slug}' already exists.",
+            )
+        conn.execute(
+            "INSERT INTO projects (name, slug, created_at) VALUES (?, ?, ?)",
+            (
+                name,
+                slug,
+                datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        project_paths = ensure_project_dirs(slug)
+        init_project_db(slug)
+        set_active_project(slug)
+        setup_logging(project_paths["logs_dir"])
+        return redirect(url_for("library"))
+
+    @app.route("/projects/<slug>/activate", methods=["POST"])
+    def activate_project(slug: str) -> str:
+        """Activate an existing project."""
+
+        conn = get_global_connection()
+        project = conn.execute(
+            "SELECT slug FROM projects WHERE slug = ?", (slug,)
+        ).fetchone()
+        conn.close()
+        if project is None:
+            return redirect(url_for("projects"))
+        project_paths = ensure_project_dirs(slug)
+        init_project_db(slug)
+        set_active_project(slug)
+        setup_logging(project_paths["logs_dir"])
+        return redirect(url_for("library"))
 
     @app.route("/")
     def library() -> str:
         """Render the library list."""
 
-        conn = get_connection()
+        conn = get_project_connection(g.active_project)
         tapes = conn.execute(
             "SELECT id, title, source_label, date_type, date_exact, date_start, date_end, "
             "date_locked, created_at FROM tapes ORDER BY created_at DESC"
@@ -54,7 +174,7 @@ def create_app() -> Flask:
                     form=request.form,
                 )
 
-            conn = get_connection()
+            conn = get_project_connection(g.active_project)
             conn.execute(
                 """
                 INSERT INTO tapes
@@ -89,7 +209,7 @@ def create_app() -> Flask:
     def tape_detail(tape_id: int) -> str:
         """Render the tape detail page."""
 
-        conn = get_connection()
+        conn = get_project_connection(g.active_project)
         tape = conn.execute("SELECT * FROM tapes WHERE id = ?", (tape_id,)).fetchone()
         review_items = conn.execute(
             "SELECT * FROM review_queue WHERE tape_id = ? ORDER BY created_at DESC",
@@ -104,7 +224,7 @@ def create_app() -> Flask:
     def review_queue() -> str:
         """Render the review queue placeholder list."""
 
-        conn = get_connection()
+        conn = get_project_connection(g.active_project)
         items = conn.execute(
             """
             SELECT review_queue.*, tapes.title
@@ -120,7 +240,11 @@ def create_app() -> Flask:
     def settings() -> str:
         """Render the settings placeholder page."""
 
-        return render_template("settings.html")
+        return render_template(
+            "settings.html",
+            active_project=g.active_project,
+            project_paths=g.project_paths,
+        )
 
     return app
 

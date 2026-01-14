@@ -75,6 +75,28 @@ VHS2MP4/
 - SQLite (no external DB)
 - Structured logging is configured in `vhs2mp4/logging_setup.py`.
 
+## Projects and storage layout
+
+VHS2MP4 is **multi-project** and uses a global settings database plus a per-project
+database for tapes and review items. The base roots are:
+
+- Local root: `/Users/Sather/Documents/VHS2MP4`
+- NAS root: `/Volumes/home/VHS2MP4`
+
+Each project lives at `/Users/Sather/Documents/VHS2MP4/<project_slug>/` with:
+
+- `inbox/`, `data/`, `01_raw/`, `02_master/`, `03_work/`, `04_final/`, `exports/`
+- `data/vhs2mp4.db` for project data
+- `data/logs/` for logs
+
+Each project is backed up to `/Volumes/home/VHS2MP4/<project_slug>/` with:
+
+- `01_raw_backup/` (and later `04_final_backup/`)
+
+The global settings database lives at:
+
+- `/Users/Sather/Documents/VHS2MP4/_global/vhs2mp4_global.db`
+
 ## License
 
 MIT (placeholder). Replace if needed.
