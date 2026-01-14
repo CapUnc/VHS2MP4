@@ -16,6 +16,7 @@ preserve intent, avoid overreach, and keep the project maintainable by humans.
 - Do not implement real video processing without explicit approval.
 - Do not add background queues or async workers unless asked.
 - Do not remove structured logging or the `data/` directory conventions.
+- Do not collapse global settings and per-project databases into a single file.
 
 ## Documentation expectations
 
@@ -34,3 +35,10 @@ preserve intent, avoid overreach, and keep the project maintainable by humans.
 - Keep the code readable for non-experts.
 - Prefer explicit types and clear variable names.
 - Leave stubs with TODOs instead of speculative implementations.
+
+## Multi-project conventions
+
+- Local base root: `/Users/Sather/Documents/VHS2MP4`
+- NAS base root: `/Volumes/home/VHS2MP4`
+- Global settings live in `/Users/Sather/Documents/VHS2MP4/_global/vhs2mp4_global.db`.
+- Project data lives in `/Users/Sather/Documents/VHS2MP4/<project_slug>/data/vhs2mp4.db`.

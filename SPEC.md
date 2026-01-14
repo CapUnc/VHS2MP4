@@ -38,10 +38,12 @@
 ## Persistence requirements
 
 - SQLite database created automatically at first run.
-- Tables include:
+- Global settings database stores:
+  - `projects`
+  - `settings` (active project)
+- Per-project database stores:
   - `tapes`
   - `review_queue`
-  - `settings`
 - Base schema must be documented and easy to extend.
 
 ## Future pipeline (stub interfaces only)
@@ -61,7 +63,7 @@
 
 ## Logging
 
-- Structured JSON logging to `data/logs/`.
+- Structured JSON logging to `data/logs/` per project.
 - Log entries must include event name, timestamp, and relevant IDs.
 
 ## Security/privacy
@@ -73,3 +75,18 @@
 
 - Python 3.11+.
 - Mac primary development environment.
+
+## Multi-project layout
+
+All projects are scoped under the base roots:
+
+- Local root: `/Users/Sather/Documents/VHS2MP4`
+- NAS root: `/Volumes/home/VHS2MP4`
+
+Each project creates local directories:
+
+- `inbox/`, `data/`, `01_raw/`, `02_master/`, `03_work/`, `04_final/`, `exports/`
+
+Each project creates NAS backup directories:
+
+- `01_raw_backup/` (and later `04_final_backup/`)

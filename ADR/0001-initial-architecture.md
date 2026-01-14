@@ -29,3 +29,10 @@ reliable on a Mac, avoid external dependencies, and be easy to troubleshoot.
 - FastAPI: more modern but adds complexity for server-side rendering.
 - Electron: heavier footprint and more complex packaging.
 - PostgreSQL: unnecessary overhead for a local-first tool.
+
+## Addendum: Multi-project support (2024-02-01)
+
+The system now supports multiple projects. We use a **global SQLite database**
+to store projects and settings, and a **per-project SQLite database** to store
+tapes and review queue items. This keeps project data isolated and avoids
+accidental mixing between clients.

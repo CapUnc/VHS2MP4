@@ -3,16 +3,39 @@
 {% block content %}
 <section>
   <h2>Settings</h2>
-  <p>Settings are not implemented yet. This will include paths for local storage,
-  NAS backups, and feature toggles.</p>
-  <article>
-    <h3>Planned Settings</h3>
-    <ul>
-      <li>Local capture directory (Mac)</li>
-      <li>NAS backup target</li>
-      <li>Review queue behavior</li>
-      <li>Export destinations</li>
-    </ul>
-  </article>
+  <p>Settings are project-scoped. The active project controls where tapes and logs
+  are stored.</p>
 </section>
+
+<section>
+  <h3>Active project</h3>
+  {% if active_project %}
+    <p><strong>{{ active_project }}</strong></p>
+  {% else %}
+    <p>No active project selected.</p>
+  {% endif %}
+</section>
+
+{% if project_paths %}
+  <section>
+    <h3>Resolved paths</h3>
+    <table>
+      <tbody>
+        <tr><th>Project root</th><td>{{ project_paths.project_root }}</td></tr>
+        <tr><th>Inbox</th><td>{{ project_paths.inbox_dir }}</td></tr>
+        <tr><th>Data</th><td>{{ project_paths.data_dir }}</td></tr>
+        <tr><th>Raw</th><td>{{ project_paths.raw_dir }}</td></tr>
+        <tr><th>Master</th><td>{{ project_paths.master_dir }}</td></tr>
+        <tr><th>Work</th><td>{{ project_paths.work_dir }}</td></tr>
+        <tr><th>Final</th><td>{{ project_paths.final_dir }}</td></tr>
+        <tr><th>Exports</th><td>{{ project_paths.exports_dir }}</td></tr>
+        <tr><th>Database</th><td>{{ project_paths.db_path }}</td></tr>
+        <tr><th>Logs</th><td>{{ project_paths.logs_dir }}</td></tr>
+        <tr><th>NAS root</th><td>{{ project_paths.nas_root }}</td></tr>
+        <tr><th>NAS raw backup</th><td>{{ project_paths.nas_raw_backup_dir }}</td></tr>
+        <tr><th>NAS final backup</th><td>{{ project_paths.nas_final_backup_dir }}</td></tr>
+      </tbody>
+    </table>
+  </section>
+{% endif %}
 {% endblock %}
