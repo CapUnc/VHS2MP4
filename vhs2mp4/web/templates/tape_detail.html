@@ -1,0 +1,33 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<section>
+  <h2>Tape Details</h2>
+  {% if not tape %}
+    <p>Tape not found.</p>
+  {% else %}
+    <article>
+      <h3>{{ tape.title }}</h3>
+      <p><strong>Source Label:</strong> {{ tape.source_label or "—" }}</p>
+      <p><strong>Date Type:</strong> {{ tape.date_type }}</p>
+      <p><strong>Exact Date:</strong> {{ tape.date_exact or "—" }}</p>
+      <p><strong>Date Range:</strong> {{ tape.date_start or "—" }} → {{ tape.date_end or "—" }}</p>
+      <p><strong>Date Locked:</strong> {{ "Yes" if tape.date_locked else "No" }}</p>
+      <p><strong>Notes:</strong> {{ tape.notes or "—" }}</p>
+      <p><strong>Created:</strong> {{ tape.created_at }}</p>
+    </article>
+    <section>
+      <h3>Review Queue</h3>
+      {% if review_items %}
+        <ul>
+          {% for item in review_items %}
+            <li>{{ item.item_type }} — {{ item.description }} ({{ item.status }})</li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p>No review items yet.</p>
+      {% endif %}
+    </section>
+  {% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,42 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<section>
+  <h2>Library</h2>
+  <p>Overview of all tapes in the system.</p>
+  {% if tapes %}
+  <table>
+    <thead>
+      <tr>
+        <th>Title</th>
+        <th>Source Label</th>
+        <th>Date</th>
+        <th>Locked</th>
+        <th>Created</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for tape in tapes %}
+      <tr>
+        <td><a href="{{ url_for('tape_detail', tape_id=tape.id) }}">{{ tape.title }}</a></td>
+        <td>{{ tape.source_label or "—" }}</td>
+        <td>
+          {% if tape.date_type == 'exact' %}
+            {{ tape.date_exact }}
+          {% elif tape.date_type == 'range' %}
+            {{ tape.date_start }} → {{ tape.date_end }}
+          {% else %}
+            Unknown
+          {% endif %}
+        </td>
+        <td>{{ "Yes" if tape.date_locked else "No" }}</td>
+        <td>{{ tape.created_at }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>No tapes yet. <a href="{{ url_for('new_tape') }}">Add one</a> to get started.</p>
+  {% endif %}
+</section>
+{% endblock %}

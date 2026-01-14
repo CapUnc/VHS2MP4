@@ -1,0 +1,20 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<section>
+  <h2>Review Queue</h2>
+  <p>This is the consolidated list of review prompts.</p>
+  {% if items %}
+    <ul>
+      {% for item in items %}
+        <li>
+          <strong>{{ item.item_type }}</strong> — {{ item.description }}
+          (Tape: <a href="{{ url_for('tape_detail', tape_id=item.tape_id) }}">{{ item.title }}</a>)
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p>No review items yet.</p>
+  {% endif %}
+</section>
+{% endblock %}
