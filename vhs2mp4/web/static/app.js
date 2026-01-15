@@ -42,6 +42,39 @@
 })();
 
 (() => {
+  const labelInput = document.querySelector('#tape-label-text');
+  const titleInput = document.querySelector('#tape-title');
+
+  if (!labelInput || !titleInput) {
+    return;
+  }
+
+  let titleAutofilled = false;
+
+  const syncTitleFromLabel = () => {
+    const labelValue = labelInput.value.trim();
+    titleInput.value = labelValue;
+    titleAutofilled = Boolean(labelValue);
+  };
+
+  const shouldAutofill = () => titleInput.value.trim() === '' || titleAutofilled;
+
+  labelInput.addEventListener('input', () => {
+    if (shouldAutofill()) {
+      syncTitleFromLabel();
+    }
+  });
+
+  titleInput.addEventListener('input', () => {
+    titleAutofilled = false;
+  });
+
+  if (titleInput.value.trim() === '' && labelInput.value.trim() !== '') {
+    syncTitleFromLabel();
+  }
+})();
+
+(() => {
   const tagInput = document.querySelector('#tag-entry');
   const tagChips = document.querySelector('#tag-chips');
   const tagHidden = document.querySelector('#tags-json');

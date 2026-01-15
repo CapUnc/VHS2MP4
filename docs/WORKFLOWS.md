@@ -8,6 +8,14 @@
 4. Confirm NAS mirroring succeeds (review queue will flag missing backups).
 5. Create or attach Tape entries in the web UI and add metadata.
    - Add short, consistent tags (birthday, cabin, soccer) to help grouping later.
+   - Tape Label Text is the source-of-truth for what is physically written on the tape.
+   - Title is the friendly display name you want people to browse.
+
+## Tape label vs. title (best practice)
+
+- Tape Label Text = keep it raw and literal (what is written on the cassette).
+- Title = the friendly, browseable name you want family to see later.
+- Use **label is a guess** when you are not confident in the label wording.
 
 ## 2. Ingest workflow
 

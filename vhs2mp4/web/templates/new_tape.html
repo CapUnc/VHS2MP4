@@ -9,8 +9,30 @@
   {% endif %}
   <form method="post">
     <label>
+      Tape Label Text
+      <input
+        type="text"
+        name="tape_label_text"
+        id="tape-label-text"
+        value="{{ form.tape_label_text or '' }}"
+      />
+      <small>
+        Type what’s written on the tape (examples: ‘Christmas 1994’, ‘Cabin Trip’,
+        ‘Bday Party’). This is treated as a source of truth.
+      </small>
+    </label>
+    <label>
+      <input
+        type="checkbox"
+        name="label_is_guess"
+        value="1"
+        {% if form.label_is_guess %}checked{% endif %}
+      />
+      This label is a guess
+    </label>
+    <label>
       Title
-      <input type="text" name="title" value="{{ form.title or '' }}" required />
+      <input type="text" name="title" id="tape-title" value="{{ form.title or '' }}" required />
     </label>
     <label>
       Source Label (optional)
