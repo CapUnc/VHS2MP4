@@ -35,7 +35,21 @@
 - Speech-to-text is only for context clues.
 - No speaker attribution is performed.
 
-## 6. Index export workflow (future)
+## 6. Index export workflow
 
-- Generate JSON + CSV master index.
-- Export should be idempotent and include processing metadata.
+- Generate the master CSV export from the **Export** page.
+- Keep exports idempotent so the latest file replaces the previous one.
+- JSON exports will be added later once pipeline outputs exist.
+
+## 7. Export workflow
+
+1. Open **Export** from the top navigation.
+2. Review the active project name before generating.
+3. Click **Generate CSV** to create the latest master export.
+4. Use **Download latest** to open the CSV in Excel.
+
+## 8. Library search guidance
+
+- Use short, everyday words that feel natural (birthday, cabin, soccer).
+- Combine search + filters if results are too broad.
+- If no results appear, clear filters and try a simpler search term.

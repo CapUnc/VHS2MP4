@@ -2,13 +2,24 @@
 
 from __future__ import annotations
 
+import csv
+from collections import Counter
+from datetime import datetime
 import json
 import logging
+import os
 from pathlib import Path
-from datetime import datetime
-from collections import Counter
 
-from flask import Flask, g, redirect, render_template, request, url_for
+from flask import (
+    Flask,
+    flash,
+    g,
+    redirect,
+    render_template,
+    request,
+    send_file,
+    url_for,
+)
 
 from vhs2mp4.config import (
     ensure_local_project_dirs,
@@ -36,6 +47,31 @@ from vhs2mp4.services.ingest import (
 )
 
 STATUS_OPTIONS = ("New", "Ingested", "Mastered", "Reviewed", "Final")
+DATE_TYPE_OPTIONS = ("exact", "range", "unknown")
+
+EXPORT_COLUMNS = (
+    "tape_code",
+    "tape_id",
+    "title",
+    "tape_label_text",
+    "source_label",
+    "date_type",
+    "year_exact",
+    "year_from",
+    "year_to",
+    "lock_date",
+    "tags",
+    "notes",
+    "status",
+    "created_at",
+    "ingested_at",
+    "raw_filename",
+    "raw_path",
+    "sha256",
+    "backup_status",
+    "review_open_count",
+    "last_review_type",
+)
 
 
 def normalize_tags(raw_tags: list[str]) -> list[str]:
@@ -84,6 +120,116 @@ def get_tag_suggestions(
     return [tag for tag, _ in suggestions[:limit]]
 
 
+def serialize_tags(tags_json: str | None) -> str:
+    """Convert a tags JSON string into a comma-separated list."""
+
+    if not tags_json:
+        return ""
+    try:
+        tags = json.loads(tags_json)
+    except json.JSONDecodeError:
+        return ""
+    if not isinstance(tags, list):
+        return ""
+    cleaned = [tag.strip() for tag in tags if isinstance(tag, str) and tag.strip()]
+    return ", ".join(cleaned)
+
+
+def determine_backup_status(tape_row, needs_backup_open: int) -> str:
+    """Return the export-friendly backup status for a tape."""
+
+    # We rely on review items to represent queued backup work because the
+    # database doesn't store a NAS destination path yet.
+    if needs_backup_open:
+        return "queued"
+    if tape_row["backup_status"] == "backed_up":
+        return "backed_up"
+    return "unknown"
+
+
+def build_master_export_rows(conn) -> list[dict[str, str | int | None]]:
+    """Collect tape rows for the master CSV export."""
+
+    rows = conn.execute(
+        """
+        SELECT
+            tapes.id,
+            tapes.tape_code,
+            tapes.title,
+            tapes.source_label,
+            tapes.date_type,
+            tapes.date_exact,
+            tapes.date_start,
+            tapes.date_end,
+            tapes.date_locked,
+            tapes.notes,
+            tapes.status,
+            tapes.created_at,
+            tapes.ingested_at,
+            tapes.raw_filename,
+            tapes.raw_path,
+            tapes.sha256,
+            tapes.backup_status,
+            tapes.tags_json,
+            (
+                SELECT COUNT(*)
+                FROM review_items
+                WHERE review_items.tape_id = tapes.id
+                  AND review_items.status = 'open'
+            ) AS review_open_count,
+            (
+                SELECT type
+                FROM review_items
+                WHERE review_items.tape_id = tapes.id
+                  AND review_items.status = 'open'
+                ORDER BY review_items.created_at DESC
+                LIMIT 1
+            ) AS last_review_type,
+            (
+                SELECT COUNT(*)
+                FROM review_items
+                WHERE review_items.tape_id = tapes.id
+                  AND review_items.status = 'open'
+                  AND review_items.type = 'needs_backup'
+            ) AS needs_backup_open
+        FROM tapes
+        ORDER BY tapes.created_at DESC
+        """
+    ).fetchall()
+
+    export_rows: list[dict[str, str | int | None]] = []
+    for row in rows:
+        export_rows.append(
+            {
+                "tape_code": row["tape_code"] or "",
+                "tape_id": row["id"],
+                "title": row["title"] or "",
+                # TODO: tape_label_text will be populated once the field exists.
+                "tape_label_text": "",
+                "source_label": row["source_label"] or "",
+                "date_type": row["date_type"] or "",
+                "year_exact": row["date_exact"] or "",
+                "year_from": row["date_start"] or "",
+                "year_to": row["date_end"] or "",
+                "lock_date": int(row["date_locked"] or 0),
+                "tags": serialize_tags(row["tags_json"]),
+                "notes": row["notes"] or "",
+                "status": row["status"] or "",
+                "created_at": row["created_at"] or "",
+                "ingested_at": row["ingested_at"] or "",
+                "raw_filename": row["raw_filename"] or "",
+                "raw_path": row["raw_path"] or "",
+                "sha256": row["sha256"] or "",
+                "backup_status": determine_backup_status(
+                    row, row["needs_backup_open"]
+                ),
+                "review_open_count": row["review_open_count"] or 0,
+                "last_review_type": row["last_review_type"] or "",
+            }
+        )
+    return export_rows
+
+
 def create_app() -> Flask:
     """Application factory for VHS2MP4."""
 
@@ -105,6 +251,8 @@ def create_app() -> Flask:
         static_folder=str(base_dir / "web" / "static"),
         static_url_path="/static",
     )
+    # Flash messages help confirm actions without adding extra UI complexity.
+    app.secret_key = os.environ.get("VHS2MP4_SECRET_KEY", "vhs2mp4-dev-secret")
 
     @app.before_request
     def ensure_active_project_loaded() -> None | str:
@@ -221,13 +369,135 @@ def create_app() -> Flask:
     def library() -> str:
         """Render the library list."""
 
+        query = request.args.get("q", "").strip()
+        status = request.args.get("status", "All")
+        date_type = request.args.get("date_type", "All")
+        issues_only = request.args.get("issues") == "1"
+
+        filters = []
+        params: list[str] = []
+
+        if query:
+            # Use a single LIKE query for broad matching that is easy to debug.
+            like_query = f"%{query.lower()}%"
+            filters.append(
+                "("
+                "LOWER(tapes.title) LIKE ? OR "
+                "LOWER(tapes.source_label) LIKE ? OR "
+                "LOWER(tapes.notes) LIKE ? OR "
+                "LOWER(tapes.tags_json) LIKE ?"
+                ")"
+            )
+            params.extend([like_query, like_query, like_query, like_query])
+
+        if status in STATUS_OPTIONS:
+            filters.append("tapes.status = ?")
+            params.append(status)
+
+        if date_type in DATE_TYPE_OPTIONS:
+            filters.append("tapes.date_type = ?")
+            params.append(date_type)
+
+        if issues_only:
+            # Use EXISTS to avoid joining review items unless needed.
+            filters.append(
+                "EXISTS (SELECT 1 FROM review_items "
+                "WHERE review_items.tape_id = tapes.id "
+                "AND review_items.status = 'open')"
+            )
+
+        where_clause = "WHERE " + " AND ".join(filters) if filters else ""
         conn = get_project_connection(g.active_project)
         tapes = conn.execute(
             "SELECT id, title, source_label, date_type, date_exact, date_start, date_end, "
-            "date_locked, created_at FROM tapes ORDER BY created_at DESC"
+            "date_locked, created_at, status FROM tapes "
+            f"{where_clause} ORDER BY created_at DESC",
+            params,
         ).fetchall()
         conn.close()
-        return render_template("library.html", tapes=tapes)
+        return render_template(
+            "library.html",
+            tapes=tapes,
+            query=query,
+            status=status,
+            date_type=date_type,
+            issues_only=issues_only,
+        )
+
+    @app.route("/export")
+    def export_master() -> str:
+        """Render the export page."""
+
+        export_path = (
+            get_project_paths(g.active_project)["exports_dir"]
+            / f"vhs2mp4_master_{g.active_project}.csv"
+        )
+        export_exists = export_path.exists()
+        last_generated = None
+        if export_exists:
+            last_generated = datetime.fromtimestamp(
+                export_path.stat().st_mtime
+            ).isoformat(timespec="seconds")
+        return render_template(
+            "export.html",
+            export_exists=export_exists,
+            last_generated=last_generated,
+        )
+
+    @app.route("/export/generate", methods=["POST"])
+    def export_generate() -> str:
+        """Generate the master CSV export for the active project."""
+
+        project_slug = g.active_project
+        export_dir = get_project_paths(project_slug)["exports_dir"]
+        export_dir.mkdir(parents=True, exist_ok=True)
+        export_path = export_dir / f"vhs2mp4_master_{project_slug}.csv"
+
+        logging.info(
+            "Master export started",
+            extra={
+                "event": "export_started",
+                "context": {"project_slug": project_slug},
+            },
+        )
+        conn = get_project_connection(project_slug)
+        try:
+            rows = build_master_export_rows(conn)
+        finally:
+            conn.close()
+
+        with export_path.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=EXPORT_COLUMNS)
+            writer.writeheader()
+            for row in rows:
+                writer.writerow(row)
+
+        logging.info(
+            "Master export completed",
+            extra={
+                "event": "export_completed",
+                "context": {
+                    "project_slug": project_slug,
+                    "rows": len(rows),
+                    "output_path": str(export_path),
+                },
+            },
+        )
+        flash("Master CSV generated.", "success")
+        return redirect(url_for("export_master"))
+
+    @app.route("/export/download")
+    def export_download() -> str:
+        """Download the latest master CSV export."""
+
+        export_path = (
+            get_project_paths(g.active_project)["exports_dir"]
+            / f"vhs2mp4_master_{g.active_project}.csv"
+        )
+        if not export_path.exists():
+            flash("No export file found yet. Generate one first.", "warning")
+            return redirect(url_for("export_master"))
+        return send_file(export_path, as_attachment=True, download_name=export_path.name)
 
     @app.route("/tapes/new", methods=["GET", "POST"])
     def new_tape() -> str:

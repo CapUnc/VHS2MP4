@@ -4,6 +4,45 @@
 <section>
   <h2>Library</h2>
   <p>Overview of all tapes in the system.</p>
+  <form method="get">
+    <div class="grid">
+      <label>
+        Search
+        <input
+          type="search"
+          name="q"
+          placeholder="Search title, notes, tags..."
+          value="{{ query }}"
+        />
+      </label>
+      <label>
+        Status
+        <select name="status">
+          <option value="All" {% if status == "All" %}selected{% endif %}>All</option>
+          <option value="New" {% if status == "New" %}selected{% endif %}>New</option>
+          <option value="Ingested" {% if status == "Ingested" %}selected{% endif %}>Ingested</option>
+          <option value="Mastered" {% if status == "Mastered" %}selected{% endif %}>Mastered</option>
+          <option value="Reviewed" {% if status == "Reviewed" %}selected{% endif %}>Reviewed</option>
+          <option value="Final" {% if status == "Final" %}selected{% endif %}>Final</option>
+        </select>
+      </label>
+      <label>
+        Date Type
+        <select name="date_type">
+          <option value="All" {% if date_type == "All" %}selected{% endif %}>All</option>
+          <option value="exact" {% if date_type == "exact" %}selected{% endif %}>Exact</option>
+          <option value="range" {% if date_type == "range" %}selected{% endif %}>Range</option>
+          <option value="unknown" {% if date_type == "unknown" %}selected{% endif %}>Unknown</option>
+        </select>
+      </label>
+      <label>
+        <input type="checkbox" name="issues" value="1" {% if issues_only %}checked{% endif %} />
+        Has Issues
+      </label>
+    </div>
+    <button type="submit">Apply</button>
+    <a class="secondary" href="{{ url_for('library') }}">Clear filters</a>
+  </form>
   {% if tapes %}
   <table>
     <thead>
@@ -12,6 +51,7 @@
         <th>Source Label</th>
         <th>Date</th>
         <th>Locked</th>
+        <th>Status</th>
         <th>Created</th>
       </tr>
     </thead>
@@ -30,13 +70,14 @@
           {% endif %}
         </td>
         <td>{{ "Yes" if tape.date_locked else "No" }}</td>
+        <td>{{ tape.status }}</td>
         <td>{{ tape.created_at }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
   {% else %}
-  <p>No tapes yet. <a href="{{ url_for('new_tape') }}">Add one</a> to get started.</p>
+  <p>No tapes match those filters. Try clearing filters or adjusting your search.</p>
   {% endif %}
 </section>
 {% endblock %}

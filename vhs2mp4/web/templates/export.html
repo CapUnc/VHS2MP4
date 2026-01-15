@@ -1,0 +1,22 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<section>
+  <h2>Master Export</h2>
+  <p>
+    Active Project: <strong>{{ g.active_project_name or g.active_project }}</strong>
+  </p>
+  <p>
+    Exports a master CSV of all tapes and their metadata so you can search/sort in Excel.
+  </p>
+  <form method="post" action="{{ url_for('export_generate') }}">
+    <button type="submit">Generate CSV</button>
+  </form>
+  {% if export_exists %}
+    <article>
+      <p>Last generated: {{ last_generated }}</p>
+      <a href="{{ url_for('export_download') }}" role="button">Download latest</a>
+    </article>
+  {% endif %}
+</section>
+{% endblock %}
