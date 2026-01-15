@@ -11,9 +11,10 @@ from collections import Counter
 from flask import Flask, g, redirect, render_template, request, url_for
 
 from vhs2mp4.config import (
-    ensure_project_dirs,
+    ensure_local_project_dirs,
     get_global_paths,
     get_project_paths,
+    is_nas_available,
     slugify_project_name,
 )
 from vhs2mp4.db import (
@@ -92,7 +93,7 @@ def create_app() -> Flask:
 
     active_project = get_active_project()
     if active_project:
-        project_paths = ensure_project_dirs(active_project)
+        project_paths = ensure_local_project_dirs(active_project)
         setup_logging(project_paths["logs_dir"])
         init_project_db(active_project)
 
@@ -193,7 +194,7 @@ def create_app() -> Flask:
         conn.commit()
         conn.close()
 
-        project_paths = ensure_project_dirs(slug)
+        project_paths = ensure_local_project_dirs(slug)
         init_project_db(slug)
         set_active_project(slug)
         setup_logging(project_paths["logs_dir"])
@@ -210,7 +211,7 @@ def create_app() -> Flask:
         conn.close()
         if project is None:
             return redirect(url_for("projects"))
-        project_paths = ensure_project_dirs(slug)
+        project_paths = ensure_local_project_dirs(slug)
         init_project_db(slug)
         set_active_project(slug)
         setup_logging(project_paths["logs_dir"])
@@ -340,6 +341,7 @@ def create_app() -> Flask:
             inbox_files=inbox_files,
             unassigned_tapes=unassigned_tapes,
             format_bytes=format_bytes,
+            nas_available=is_nas_available(),
             message=request.args.get("message"),
             status=request.args.get("status"),
         )

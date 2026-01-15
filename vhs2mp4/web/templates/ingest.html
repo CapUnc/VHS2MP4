@@ -4,6 +4,16 @@
 <section>
   <h2>Ingest Inbox</h2>
   <p>Review MP4 files in the active project inbox and ingest them into raw storage.</p>
+  <p>
+    <small>
+      NAS:
+      {% if nas_available %}
+        Available
+      {% else %}
+        Not Available (backups will be queued)
+      {% endif %}
+    </small>
+  </p>
   {% if message %}
     <article>
       <strong>{{ message }}</strong>
