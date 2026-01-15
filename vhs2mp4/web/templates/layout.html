@@ -55,6 +55,7 @@
             <li><a href="{{ url_for('library') }}">Library</a></li>
             <li><a href="{{ url_for('new_tape') }}">Add Tape</a></li>
             <li><a href="{{ url_for('ingest') }}">Ingest</a></li>
+            <li><a href="{{ url_for('export_master') }}">Export</a></li>
             <li><a href="{{ url_for('review_queue') }}">Review</a></li>
             <li><a href="{{ url_for('settings') }}">Settings</a></li>
           </ul>
@@ -68,6 +69,15 @@
           {% endif %}
         </p>
       </header>
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <section>
+            {% for category, message in messages %}
+              <p><strong>{{ message }}</strong></p>
+            {% endfor %}
+          </section>
+        {% endif %}
+      {% endwith %}
       {% block content %}{% endblock %}
     </main>
   </body>

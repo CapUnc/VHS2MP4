@@ -31,3 +31,9 @@
 
 - Run the app from a directory you own.
 - Ensure `scripts/run_local.sh` is executable if used.
+
+## Export issues
+
+- CSV not generating: confirm the active project is set and try again.
+- Permissions: ensure `/Users/Sather/Documents/VHS2MP4/<project>/exports` is writable.
+- Folder missing: the app recreates local folders, but you can manually create `exports` if needed.
