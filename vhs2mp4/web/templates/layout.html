@@ -6,21 +6,32 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" />
     <style>
+      #tag-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
       .tag-chip {
         display: inline-flex;
         align-items: center;
-        gap: 0.35rem;
-        padding: 0.25rem 0.5rem;
-        margin: 0.15rem;
+        gap: 0.5rem;
+        padding: 0.35rem 0.75rem;
         border-radius: 999px;
-        background: #eef2ff;
-        font-size: 0.85rem;
+        background: var(--pico-primary-background, #3b82f6);
+        color: var(--pico-primary-inverse, #ffffff);
+        font-size: 0.875rem;
+        line-height: 1.2;
+        max-width: 100%;
       }
       .tag-remove {
+        padding: 0;
         border: none;
         background: transparent;
+        color: inherit;
         cursor: pointer;
-        font-size: 0.85rem;
+        font-size: 0.875rem;
+        line-height: 1;
+        opacity: 0.8;
       }
       .tag-suggestion-list {
         display: flex;
