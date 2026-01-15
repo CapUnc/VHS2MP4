@@ -54,6 +54,7 @@ EXPORT_COLUMNS = (
     "tape_id",
     "title",
     "tape_label_text",
+    "label_is_guess",
     "source_label",
     "date_type",
     "year_exact",
@@ -156,6 +157,8 @@ def build_master_export_rows(conn) -> list[dict[str, str | int | None]]:
             tapes.id,
             tapes.tape_code,
             tapes.title,
+            tapes.tape_label_text,
+            tapes.label_is_guess,
             tapes.source_label,
             tapes.date_type,
             tapes.date_exact,
@@ -204,8 +207,8 @@ def build_master_export_rows(conn) -> list[dict[str, str | int | None]]:
                 "tape_code": row["tape_code"] or "",
                 "tape_id": row["id"],
                 "title": row["title"] or "",
-                # TODO: tape_label_text will be populated once the field exists.
-                "tape_label_text": "",
+                "tape_label_text": row["tape_label_text"] or "",
+                "label_is_guess": int(row["label_is_guess"] or 0),
                 "source_label": row["source_label"] or "",
                 "date_type": row["date_type"] or "",
                 "year_exact": row["date_exact"] or "",
@@ -383,12 +386,15 @@ def create_app() -> Flask:
             filters.append(
                 "("
                 "LOWER(tapes.title) LIKE ? OR "
+                "LOWER(tapes.tape_label_text) LIKE ? OR "
                 "LOWER(tapes.source_label) LIKE ? OR "
                 "LOWER(tapes.notes) LIKE ? OR "
                 "LOWER(tapes.tags_json) LIKE ?"
                 ")"
             )
-            params.extend([like_query, like_query, like_query, like_query])
+            params.extend(
+                [like_query, like_query, like_query, like_query, like_query]
+            )
 
         if status in STATUS_OPTIONS:
             filters.append("tapes.status = ?")
@@ -505,6 +511,9 @@ def create_app() -> Flask:
 
         if request.method == "POST":
             title = request.form.get("title", "").strip()
+            # Tape label text is stored separately because titles evolve over time.
+            tape_label_text = request.form.get("tape_label_text", "").strip()
+            label_is_guess = 1 if request.form.get("label_is_guess") == "1" else 0
             source_label = request.form.get("source_label", "").strip() or None
             date_type = request.form.get("date_type", "unknown")
             date_exact = request.form.get("date_exact") or None
@@ -537,12 +546,15 @@ def create_app() -> Flask:
             conn.execute(
                 """
                 INSERT INTO tapes
-                    (tape_code, title, source_label, date_type, date_exact, date_start, date_end,
-                     date_locked, notes, created_at, status, tags_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (tape_code, tape_label_text, label_is_guess, title, source_label,
+                     date_type, date_exact, date_start, date_end, date_locked, notes,
+                     created_at, status, tags_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     tape_code,
+                    tape_label_text,
+                    label_is_guess,
                     title,
                     source_label,
                     date_type,

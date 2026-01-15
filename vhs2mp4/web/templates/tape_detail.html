@@ -11,6 +11,9 @@
       <p><strong>Tape ID:</strong> {{ tape.tape_code or "—" }}</p>
       <p><strong>Status:</strong> {{ tape.status or "New" }}</p>
       <p><strong>Created:</strong> {{ tape.created_at }}</p>
+      <h4>Label</h4>
+      <p><strong>Tape Label Text:</strong> {{ tape.tape_label_text or "—" }}</p>
+      <p><strong>Label Guess:</strong> {{ "Yes" if tape.label_is_guess else "No" }}</p>
       <p><strong>Source Label:</strong> {{ tape.source_label or "—" }}</p>
       <p><strong>Date Type:</strong> {{ tape.date_type }}</p>
       <p><strong>Exact Date:</strong> {{ tape.date_exact or "—" }}</p>

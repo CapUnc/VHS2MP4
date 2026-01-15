@@ -35,6 +35,9 @@ PROJECT_SCHEMA = """
 CREATE TABLE IF NOT EXISTS tapes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     tape_code TEXT UNIQUE,
+    -- Tape label text stays immutable as the source of truth; title can evolve.
+    tape_label_text TEXT DEFAULT '',
+    label_is_guess INTEGER DEFAULT 0,
     title TEXT NOT NULL,
     source_label TEXT,
     date_type TEXT NOT NULL,
@@ -117,35 +120,65 @@ def init_project_db(project_slug: str) -> None:
     conn = get_project_connection(project_slug)
     try:
         conn.executescript(PROJECT_SCHEMA)
-        ensure_project_schema(conn)
+        ensure_project_schema(conn, project_slug)
         conn.commit()
     finally:
         conn.close()
 
 
-def ensure_project_schema(conn: sqlite3.Connection) -> None:
+def ensure_project_schema(conn: sqlite3.Connection, project_slug: str) -> None:
     """Ensure required columns exist for the per-project schema."""
 
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(tapes)")}
+    applied_migrations: list[str] = []
 
     if "tape_code" not in columns:
         conn.execute("ALTER TABLE tapes ADD COLUMN tape_code TEXT")
+        applied_migrations.append("tape_code")
     if "status" not in columns:
         conn.execute("ALTER TABLE tapes ADD COLUMN status TEXT NOT NULL DEFAULT 'New'")
+        applied_migrations.append("status")
     if "tags_json" not in columns:
         conn.execute("ALTER TABLE tapes ADD COLUMN tags_json TEXT")
+        applied_migrations.append("tags_json")
     if "created_at" not in columns:
         conn.execute("ALTER TABLE tapes ADD COLUMN created_at TEXT NOT NULL")
+        applied_migrations.append("created_at")
     if "raw_filename" not in columns:
         conn.execute("ALTER TABLE tapes ADD COLUMN raw_filename TEXT")
+        applied_migrations.append("raw_filename")
     if "raw_path" not in columns:
         conn.execute("ALTER TABLE tapes ADD COLUMN raw_path TEXT")
+        applied_migrations.append("raw_path")
     if "sha256" not in columns:
         conn.execute("ALTER TABLE tapes ADD COLUMN sha256 TEXT")
+        applied_migrations.append("sha256")
     if "ingested_at" not in columns:
         conn.execute("ALTER TABLE tapes ADD COLUMN ingested_at TEXT")
+        applied_migrations.append("ingested_at")
     if "backup_status" not in columns:
         conn.execute("ALTER TABLE tapes ADD COLUMN backup_status TEXT")
+        applied_migrations.append("backup_status")
+    if "tape_label_text" not in columns:
+        # Tape label text is immutable source-of-truth separate from display titles.
+        conn.execute("ALTER TABLE tapes ADD COLUMN tape_label_text TEXT DEFAULT ''")
+        applied_migrations.append("tape_label_text")
+    if "label_is_guess" not in columns:
+        conn.execute("ALTER TABLE tapes ADD COLUMN label_is_guess INTEGER DEFAULT 0")
+        applied_migrations.append("label_is_guess")
+
+    if applied_migrations:
+        _clear_project_logs(project_slug)
+        logging.info(
+            "Applied project tape schema migrations",
+            extra={
+                "event": "project_schema_migrated",
+                "context": {
+                    "project_slug": project_slug,
+                    "columns": applied_migrations,
+                },
+            },
+        )
 
     conn.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_tapes_tape_code ON tapes(tape_code)"
@@ -166,6 +199,27 @@ def ensure_project_schema(conn: sqlite3.Connection) -> None:
         )
         """
     )
+
+
+def _clear_project_logs(project_slug: str) -> None:
+    """Clear log file when a migration runs to keep log output focused."""
+
+    logs_dir = get_project_paths(project_slug)["logs_dir"]
+    logfile = logs_dir / "app.log"
+    logger = logging.getLogger()
+    for handler in logger.handlers:
+        if isinstance(handler, logging.FileHandler):
+            try:
+                if Path(handler.baseFilename) == logfile:
+                    handler.acquire()
+                    try:
+                        if handler.stream:
+                            handler.stream.seek(0)
+                            handler.stream.truncate()
+                    finally:
+                        handler.release()
+            except OSError:
+                continue
 
 
 def _parse_tape_code(tape_code: str) -> int | None:
