@@ -9,48 +9,61 @@
       <strong>{{ message }}</strong>
     </article>
   {% endif %}
-  {% if items %}
-    <table>
-      <thead>
-        <tr>
-          <th>Created</th>
-          <th>Type</th>
-          <th>Message</th>
-          <th>Tape</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for item in items %}
+  {% macro render_items(items) %}
+    {% if items %}
+      <table>
+        <thead>
           <tr>
-            <td>{{ item.created_at }}</td>
-            <td>{{ item.type }}</td>
-            <td>{{ item.message }}</td>
-            <td>
-              {% if item.tape_id %}
-                <a href="{{ url_for('tape_detail', tape_id=item.tape_id) }}">
-                  {{ item.tape_code or item.tape_id }} — {{ item.title }}
-                </a>
-              {% else %}
-                —
-              {% endif %}
-            </td>
-            <td>
-              <form method="post" action="{{ url_for('resolve_review_item', item_id=item.id) }}">
-                <button type="submit">Mark Resolved</button>
-              </form>
-              {% if item.type == 'needs_backup' and item.tape_id %}
-                <form method="post" action="{{ url_for('retry_backup_item', item_id=item.id) }}">
-                  <button type="submit">Retry Backup</button>
-                </form>
-              {% endif %}
-            </td>
+            <th>Created</th>
+            <th>Type</th>
+            <th>Message</th>
+            <th>Tape</th>
+            <th>Actions</th>
           </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  {% else %}
-    <p>No review items yet.</p>
+        </thead>
+        <tbody>
+          {% for item in items %}
+            <tr>
+              <td>{{ item.created_at }}</td>
+              <td>{{ item.type }}</td>
+              <td>{{ item.message }}</td>
+              <td>
+                {% if item.tape_id %}
+                  <a href="{{ url_for('tape_detail', tape_id=item.tape_id) }}">
+                    {{ item.tape_code or item.tape_id }} — {{ item.title }}
+                  </a>
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>
+                <form method="post" action="{{ url_for('resolve_review_item', item_id=item.id) }}">
+                  <button type="submit">Mark Resolved</button>
+                </form>
+                {% if item.type == 'needs_backup' and item.tape_id %}
+                  <form method="post" action="{{ url_for('retry_backup_item', item_id=item.id) }}">
+                    <button type="submit">Retry Backup</button>
+                  </form>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p>No items in this section.</p>
+    {% endif %}
+  {% endmacro %}
+
+  <h3>Backup Issues</h3>
+  {{ render_items(needs_backup_items) }}
+
+  <h3>Metadata To-Do</h3>
+  {{ render_items(needs_metadata_items) }}
+
+  {% if other_items %}
+    <h3>Other Review Items</h3>
+    {{ render_items(other_items) }}
   {% endif %}
 </section>
 {% endblock %}
