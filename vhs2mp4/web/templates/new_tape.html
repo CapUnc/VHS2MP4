@@ -47,10 +47,38 @@
         <input type="date" name="date_end" value="{{ form.date_end or '' }}" />
       </label>
     </div>
-    <label>
-      <input type="checkbox" name="date_locked" {% if form.date_locked %}checked{% endif %} />
-      Lock Date (you are confident this date is correct)
+    <div id="date-lock">
+      <label>
+        <input type="checkbox" name="date_locked" {% if form.date_locked %}checked{% endif %} />
+        <span id="date-lock-text">Lock Date (AI will not change the date you entered)</span>
+      </label>
+    </div>
+    <label id="tag-input-group">
+      Tags
+      <input
+        type="text"
+        name="tag_entry"
+        id="tag-entry"
+        placeholder="Type a tag and press Enter"
+        autocomplete="off"
+      />
+      <input type="hidden" name="tags_json" id="tags-json" value="{{ form.tags_json or '[]' }}" />
     </label>
+    <div id="tag-chips" aria-live="polite"></div>
+    <div id="tag-suggestions">
+      {% if tag_suggestions %}
+        <p><strong>Suggestions:</strong></p>
+        <div class="tag-suggestion-list">
+          {% for tag in tag_suggestions %}
+            <button type="button" class="tag-suggestion" data-tag="{{ tag }}">{{ tag }}</button>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </div>
+    <small>
+      Type a tag and press Enter. Keep tags short (birthday, cabin, soccer). Use the
+      same wording across tapes so search and grouping works.
+    </small>
     <label>
       Notes
       <textarea name="notes" rows="4">{{ form.notes or '' }}</textarea>

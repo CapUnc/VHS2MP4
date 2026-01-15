@@ -6,6 +6,7 @@
 2. Copy MP4s locally onto the Mac working directory.
 3. Backup RAW MP4s to the NAS before any processing begins.
 4. Create a Tape entry in the web UI and attach metadata.
+   - Add short, consistent tags (birthday, cabin, soccer) to help grouping later.
 
 ## 2. Review queue workflow
 
