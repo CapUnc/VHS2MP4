@@ -26,6 +26,13 @@ from vhs2mp4.db import (
     get_next_tape_code,
 )
 from vhs2mp4.logging_setup import setup_logging
+from vhs2mp4.services.ingest import (
+    format_bytes,
+    ingest_inbox_file,
+    list_inbox_files,
+    list_unassigned_tapes,
+    retry_backup,
+)
 
 STATUS_OPTIONS = ("New", "Ingested", "Mastered", "Reviewed", "Final")
 
@@ -301,7 +308,7 @@ def create_app() -> Flask:
         conn = get_project_connection(g.active_project)
         tape = conn.execute("SELECT * FROM tapes WHERE id = ?", (tape_id,)).fetchone()
         review_items = conn.execute(
-            "SELECT * FROM review_queue WHERE tape_id = ? ORDER BY created_at DESC",
+            "SELECT * FROM review_items WHERE tape_id = ? ORDER BY created_at DESC",
             (tape_id,),
         ).fetchall()
         conn.close()
@@ -320,21 +327,148 @@ def create_app() -> Flask:
             tags=tags,
         )
 
+    @app.route("/ingest")
+    def ingest() -> str:
+        """Render the ingest queue from the project inbox."""
+
+        conn = get_project_connection(g.active_project)
+        inbox_files = list_inbox_files(conn, g.active_project)
+        unassigned_tapes = list_unassigned_tapes(conn)
+        conn.close()
+        return render_template(
+            "ingest.html",
+            inbox_files=inbox_files,
+            unassigned_tapes=unassigned_tapes,
+            format_bytes=format_bytes,
+            message=request.args.get("message"),
+            status=request.args.get("status"),
+        )
+
+    @app.route("/ingest/file", methods=["POST"])
+    def ingest_file() -> str:
+        """Ingest a single inbox file."""
+
+        filename = request.form.get("filename", "").strip()
+        tape_id_raw = request.form.get("tape_id", "").strip()
+        tape_id = int(tape_id_raw) if tape_id_raw else None
+        conn = get_project_connection(g.active_project)
+        try:
+            result = ingest_inbox_file(conn, g.active_project, filename, tape_id)
+            conn.commit()
+        finally:
+            conn.close()
+        return redirect(
+            url_for("ingest", message=result.get("message"), status=result.get("status"))
+        )
+
+    @app.route("/ingest/all", methods=["POST"])
+    def ingest_all() -> str:
+        """Ingest all new inbox files."""
+
+        conn = get_project_connection(g.active_project)
+        try:
+            inbox_files = list_inbox_files(conn, g.active_project)
+            ingested = 0
+            skipped = 0
+            for inbox_file in inbox_files:
+                if inbox_file.status != "new":
+                    skipped += 1
+                    continue
+                result = ingest_inbox_file(conn, g.active_project, inbox_file.name)
+                if result.get("status") == "ingested":
+                    ingested += 1
+            conn.commit()
+        finally:
+            conn.close()
+        message = f"Ingested {ingested} file(s). Skipped {skipped}."
+        return redirect(url_for("ingest", message=message, status="ingested"))
+
     @app.route("/review")
     def review_queue() -> str:
-        """Render the review queue placeholder list."""
+        """Render the review queue list."""
 
         conn = get_project_connection(g.active_project)
         items = conn.execute(
             """
-            SELECT review_queue.*, tapes.title
-            FROM review_queue
-            JOIN tapes ON review_queue.tape_id = tapes.id
-            ORDER BY review_queue.created_at DESC
+            SELECT review_items.*, tapes.title, tapes.tape_code
+            FROM review_items
+            LEFT JOIN tapes ON review_items.tape_id = tapes.id
+            WHERE review_items.status = 'open'
+            ORDER BY review_items.created_at DESC
             """
         ).fetchall()
         conn.close()
-        return render_template("review.html", items=items)
+        return render_template(
+            "review.html",
+            items=items,
+            message=request.args.get("message"),
+            status=request.args.get("status"),
+        )
+
+    @app.route("/review/<int:item_id>/resolve", methods=["POST"])
+    def resolve_review_item(item_id: int) -> str:
+        """Mark a review item as resolved."""
+
+        conn = get_project_connection(g.active_project)
+        try:
+            conn.execute(
+                "UPDATE review_items SET status = 'resolved' WHERE id = ?", (item_id,)
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        return redirect(
+            url_for("review_queue", message="Review item resolved.", status="resolved")
+        )
+
+    @app.route("/review/<int:item_id>/retry-backup", methods=["POST"])
+    def retry_backup_item(item_id: int) -> str:
+        """Retry NAS backup for a review item."""
+
+        conn = get_project_connection(g.active_project)
+        try:
+            item = conn.execute(
+                "SELECT * FROM review_items WHERE id = ?", (item_id,)
+            ).fetchone()
+            if not item:
+                return redirect(
+                    url_for(
+                        "review_queue",
+                        message="Review item not found.",
+                        status="error",
+                    )
+                )
+            if item["type"] != "needs_backup" or not item["tape_id"]:
+                return redirect(
+                    url_for(
+                        "review_queue",
+                        message="Review item cannot be retried.",
+                        status="error",
+                    )
+                )
+            tape = conn.execute(
+                "SELECT id, raw_path FROM tapes WHERE id = ?", (item["tape_id"],)
+            ).fetchone()
+            if not tape or not tape["raw_path"]:
+                return redirect(
+                    url_for(
+                        "review_queue",
+                        message="Raw path missing for backup retry.",
+                        status="error",
+                    )
+                )
+            result = retry_backup(conn, g.active_project, tape["id"], tape["raw_path"])
+            if result["status"] == "backed_up":
+                conn.execute(
+                    "UPDATE review_items SET status = 'resolved' WHERE id = ?",
+                    (item_id,),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+        return redirect(
+            url_for("review_queue", message=result["message"], status=result["status"])
+        )
 
     @app.route("/settings")
     def settings() -> str:

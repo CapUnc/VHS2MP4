@@ -39,18 +39,23 @@ CREATE TABLE IF NOT EXISTS tapes (
     date_end TEXT,
     date_locked INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'New',
+    raw_filename TEXT,
+    raw_path TEXT,
+    sha256 TEXT,
+    backup_status TEXT,
     notes TEXT,
     created_at TEXT NOT NULL,
     tags_json TEXT
 );
 
-CREATE TABLE IF NOT EXISTS review_queue (
+CREATE TABLE IF NOT EXISTS review_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    tape_id INTEGER NOT NULL,
-    item_type TEXT NOT NULL,
-    description TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending',
     created_at TEXT NOT NULL,
+    status TEXT NOT NULL,
+    type TEXT NOT NULL,
+    tape_id INTEGER,
+    message TEXT NOT NULL,
+    payload_json TEXT,
     FOREIGN KEY (tape_id) REFERENCES tapes(id)
 );
 """
@@ -126,12 +131,34 @@ def ensure_project_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE tapes ADD COLUMN tags_json TEXT")
     if "created_at" not in columns:
         conn.execute("ALTER TABLE tapes ADD COLUMN created_at TEXT NOT NULL")
+    if "raw_filename" not in columns:
+        conn.execute("ALTER TABLE tapes ADD COLUMN raw_filename TEXT")
+    if "raw_path" not in columns:
+        conn.execute("ALTER TABLE tapes ADD COLUMN raw_path TEXT")
+    if "sha256" not in columns:
+        conn.execute("ALTER TABLE tapes ADD COLUMN sha256 TEXT")
+    if "backup_status" not in columns:
+        conn.execute("ALTER TABLE tapes ADD COLUMN backup_status TEXT")
 
     conn.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_tapes_tape_code ON tapes(tape_code)"
     )
     conn.execute("UPDATE tapes SET status = 'New' WHERE status IS NULL")
     backfill_tape_codes(conn)
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS review_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL,
+            status TEXT NOT NULL,
+            type TEXT NOT NULL,
+            tape_id INTEGER,
+            message TEXT NOT NULL,
+            payload_json TEXT,
+            FOREIGN KEY (tape_id) REFERENCES tapes(id)
+        )
+        """
+    )
 
 
 def _parse_tape_code(tape_code: str) -> int | None:

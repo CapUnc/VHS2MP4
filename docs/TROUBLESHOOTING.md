@@ -16,6 +16,12 @@
 - Logs are written to `data/logs/app.log` by default.
 - Confirm the `data/logs/` directory is writable.
 
+## NAS not mounted
+
+- Ingest will still complete, but a review item of type `needs_backup` appears.
+- Mount `/Volumes/home` and ensure the NAS path is reachable.
+- Use **Review → Retry Backup** after the NAS is mounted.
+
 ## UI looks stale
 
 - Refresh the page.
