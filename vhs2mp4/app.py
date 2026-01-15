@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from datetime import datetime
 
 from flask import Flask, g, redirect, render_template, request, url_for
@@ -37,7 +38,14 @@ def create_app() -> Flask:
         setup_logging(project_paths["logs_dir"])
         init_project_db(active_project)
 
-    app = Flask(__name__)
+    base_dir = Path(__file__).resolve().parent
+
+    app = Flask(
+        __name__,
+        template_folder=str(base_dir / "web" / "templates"),
+        static_folder=str(base_dir / "web" / "static"),
+        static_url_path="/static",
+    )
 
     @app.before_request
     def ensure_active_project_loaded() -> None | str:
