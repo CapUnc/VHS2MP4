@@ -11,7 +11,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from vhs2mp4.config import get_project_paths
+from vhs2mp4.config import (
+    ensure_nas_project_dirs,
+    get_project_paths,
+    is_nas_available,
+)
 from vhs2mp4.db import get_next_tape_code
 
 logger = logging.getLogger(__name__)
@@ -161,7 +165,10 @@ def _attempt_nas_backup(
     paths = get_project_paths(project_slug)
     nas_dir = paths["nas_raw_backup_dir"]
     try:
-        nas_dir.mkdir(parents=True, exist_ok=True)
+        if not is_nas_available():
+            return False, None, "NAS not available"
+        if not ensure_nas_project_dirs(project_slug):
+            return False, None, "NAS directories could not be created"
         destination = resolve_conflict_path(nas_dir, raw_path.name)
         shutil.copy2(raw_path, destination)
         logger.info(
@@ -172,7 +179,7 @@ def _attempt_nas_backup(
             },
         )
         return True, destination, None
-    except OSError as exc:
+    except (OSError, TimeoutError) as exc:
         logger.warning(
             "NAS backup failed",
             extra={
@@ -371,6 +378,15 @@ def retry_backup(
     raw_file = Path(raw_path)
     if not raw_file.exists():
         return {"status": "error", "message": "Raw file not found for retry."}
+    if not is_nas_available():
+        logger.info(
+            "NAS unavailable during backup retry",
+            extra={"event": "nas_retry_unavailable", "context": {"tape_id": tape_id}},
+        )
+        return {
+            "status": "error",
+            "message": "NAS not available. Backup will remain queued.",
+        }
 
     success, nas_path, error = _attempt_nas_backup(project_slug, raw_file)
     if success:

@@ -10,7 +10,11 @@ import logging
 import sqlite3
 from pathlib import Path
 
-from vhs2mp4.config import ensure_project_dirs, get_global_paths, get_project_paths
+from vhs2mp4.config import (
+    ensure_local_project_dirs,
+    get_global_paths,
+    get_project_paths,
+)
 
 
 GLOBAL_SCHEMA = """
@@ -99,7 +103,7 @@ def get_project_db_path(project_slug: str) -> Path:
 def get_project_connection(project_slug: str) -> sqlite3.Connection:
     """Create a SQLite connection for a project database."""
 
-    ensure_project_dirs(project_slug)
+    ensure_local_project_dirs(project_slug)
     db_path = get_project_db_path(project_slug)
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row

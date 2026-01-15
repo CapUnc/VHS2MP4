@@ -82,8 +82,32 @@ def get_project_paths(project_slug: str) -> Dict[str, Path]:
     }
 
 
-def ensure_project_dirs(project_slug: str) -> Dict[str, Path]:
-    """Ensure project directories exist locally and on the NAS."""
+def is_nas_available() -> bool:
+    """Return True if the NAS mount appears available."""
+
+    logger = logging.getLogger(__name__)
+    nas_root = Path("/Volumes/home")
+    try:
+        if not nas_root.exists() or not nas_root.is_dir():
+            logger.info(
+                "NAS mount unavailable",
+                extra={"event": "nas_unavailable", "context": {"path": str(nas_root)}},
+            )
+            return False
+    except (OSError, TimeoutError) as exc:
+        logger.warning(
+            "NAS availability check failed",
+            extra={
+                "event": "nas_check_failed",
+                "context": {"path": str(nas_root), "error": str(exc)},
+            },
+        )
+        return False
+    return True
+
+
+def ensure_local_project_dirs(project_slug: str) -> Dict[str, Path]:
+    """Ensure project directories exist locally."""
 
     logger = logging.getLogger(__name__)
     paths = get_project_paths(project_slug)
@@ -100,14 +124,61 @@ def ensure_project_dirs(project_slug: str) -> Dict[str, Path]:
     ]
     for directory in local_dirs:
         directory.mkdir(parents=True, exist_ok=True)
-    nas_dirs = [paths["nas_root"], paths["nas_raw_backup_dir"]]
-    for directory in nas_dirs:
-        directory.mkdir(parents=True, exist_ok=True)
     logger.info(
-        "Ensured project directories",
-        extra={"event": "project_dirs_ensured", "context": {"project_slug": project_slug}},
+        "Ensured local project directories",
+        extra={
+            "event": "local_project_dirs_ensured",
+            "context": {"project_slug": project_slug},
+        },
     )
     return paths
+
+
+def ensure_nas_project_dirs(project_slug: str) -> bool:
+    """Ensure project directories exist on the NAS if available."""
+
+    logger = logging.getLogger(__name__)
+    if not is_nas_available():
+        logger.info(
+            "Skipping NAS directory creation (NAS unavailable)",
+            extra={
+                "event": "nas_dirs_skipped",
+                "context": {"project_slug": project_slug},
+            },
+        )
+        return False
+    paths = get_project_paths(project_slug)
+    nas_dirs = [
+        paths["nas_root"],
+        paths["nas_raw_backup_dir"],
+        paths["nas_final_backup_dir"],
+    ]
+    try:
+        for directory in nas_dirs:
+            directory.mkdir(parents=True, exist_ok=True)
+    except (OSError, TimeoutError) as exc:
+        logger.warning(
+            "NAS directory creation failed",
+            extra={
+                "event": "nas_dirs_failed",
+                "context": {"project_slug": project_slug, "error": str(exc)},
+            },
+        )
+        return False
+    logger.info(
+        "Ensured NAS project directories",
+        extra={
+            "event": "nas_project_dirs_ensured",
+            "context": {"project_slug": project_slug},
+        },
+    )
+    return True
+
+
+def ensure_project_dirs(project_slug: str) -> Dict[str, Path]:
+    """Ensure local project directories exist."""
+
+    return ensure_local_project_dirs(project_slug)
 
 
 def slugify_project_name(name: str) -> str:
