@@ -16,9 +16,20 @@
       <p><strong>Exact Date:</strong> {{ tape.date_exact or "—" }}</p>
       <p><strong>Date Range:</strong> {{ tape.date_start or "—" }} → {{ tape.date_end or "—" }}</p>
       <p><strong>Date Locked:</strong> {{ "Yes" if tape.date_locked else "No" }}</p>
-      <p><strong>Raw Filename:</strong> {{ tape.raw_filename or "—" }}</p>
-      <p><strong>Raw Path:</strong> {{ tape.raw_path or "—" }}</p>
-      <p><strong>SHA256:</strong> {{ tape.sha256 or "—" }}</p>
+      <h4>Raw Media</h4>
+      {% if tape.raw_filename %}
+        <p><strong>Raw File:</strong> {{ tape.raw_filename }}</p>
+        <p><strong>Ingested At:</strong> {{ tape.ingested_at or "—" }}</p>
+        <details>
+          <summary>Raw file details</summary>
+          <p><strong>Raw Path:</strong> {{ tape.raw_path or "—" }}</p>
+          <p><strong>SHA256:</strong> {{ tape.sha256 or "—" }}</p>
+        </details>
+      {% elif tape.status == "New" %}
+        <p>No raw file attached yet.</p>
+      {% else %}
+        <p><strong>Raw File:</strong> —</p>
+      {% endif %}
       <p><strong>Backup Status:</strong> {{ tape.backup_status or "—" }}</p>
       <p><strong>Tags:</strong> {{ tags | join(", ") if tags else "—" }}</p>
       <p><strong>Notes:</strong> {{ tape.notes or "—" }}</p>

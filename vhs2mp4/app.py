@@ -400,9 +400,20 @@ def create_app() -> Flask:
             """
         ).fetchall()
         conn.close()
+        needs_backup_items = [item for item in items if item["type"] == "needs_backup"]
+        needs_metadata_items = [
+            item for item in items if item["type"] == "needs_metadata"
+        ]
+        other_items = [
+            item
+            for item in items
+            if item["type"] not in {"needs_backup", "needs_metadata"}
+        ]
         return render_template(
             "review.html",
-            items=items,
+            needs_backup_items=needs_backup_items,
+            needs_metadata_items=needs_metadata_items,
+            other_items=other_items,
             message=request.args.get("message"),
             status=request.args.get("status"),
         )

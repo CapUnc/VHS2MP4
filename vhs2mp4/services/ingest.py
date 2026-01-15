@@ -82,9 +82,9 @@ def list_unassigned_tapes(conn) -> list[dict[str, Any]]:
 
     rows = conn.execute(
         """
-        SELECT id, title, tape_code
+        SELECT id, title, tape_code, source_label
         FROM tapes
-        WHERE raw_filename IS NULL OR raw_filename = ''
+        WHERE status = 'New' AND (raw_path IS NULL OR raw_path = '')
         ORDER BY created_at DESC
         """
     ).fetchall()
@@ -266,7 +266,8 @@ def ingest_inbox_file(
         conn.execute(
             """
             UPDATE tapes
-            SET raw_filename = ?, raw_path = ?, sha256 = ?, status = ?, backup_status = ?
+            SET raw_filename = ?, raw_path = ?, sha256 = ?, status = ?, ingested_at = ?,
+                backup_status = ?
             WHERE id = ?
             """,
             (
@@ -274,6 +275,7 @@ def ingest_inbox_file(
                 str(raw_destination),
                 raw_hash,
                 "Ingested",
+                now,
                 None,
                 tape_id,
             ),
@@ -294,8 +296,8 @@ def ingest_inbox_file(
             INSERT INTO tapes
                 (tape_code, title, source_label, date_type, date_exact, date_start,
                  date_end, date_locked, notes, created_at, status, tags_json,
-                 raw_filename, raw_path, sha256, backup_status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 raw_filename, raw_path, sha256, ingested_at, backup_status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 tape_code,
@@ -313,10 +315,18 @@ def ingest_inbox_file(
                 raw_destination.name,
                 str(raw_destination),
                 raw_hash,
+                now,
                 None,
             ),
         )
         created_tape_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        _create_review_item(
+            conn,
+            "needs_metadata",
+            "Tape was auto-created from filename. Add label/year/tags when you can.",
+            created_tape_id,
+            {"priority": "low", "skippable": True},
+        )
         logger.info(
             "Tape created from ingest",
             extra={

@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS tapes (
     raw_filename TEXT,
     raw_path TEXT,
     sha256 TEXT,
+    ingested_at TEXT,
     backup_status TEXT,
     notes TEXT,
     created_at TEXT NOT NULL,
@@ -141,6 +142,8 @@ def ensure_project_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE tapes ADD COLUMN raw_path TEXT")
     if "sha256" not in columns:
         conn.execute("ALTER TABLE tapes ADD COLUMN sha256 TEXT")
+    if "ingested_at" not in columns:
+        conn.execute("ALTER TABLE tapes ADD COLUMN ingested_at TEXT")
     if "backup_status" not in columns:
         conn.execute("ALTER TABLE tapes ADD COLUMN backup_status TEXT")
 

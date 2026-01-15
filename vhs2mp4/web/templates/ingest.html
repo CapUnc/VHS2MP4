@@ -4,6 +4,7 @@
 <section>
   <h2>Ingest Inbox</h2>
   <p>Review MP4 files in the active project inbox and ingest them into raw storage.</p>
+  <p><strong>Best practice:</strong> Add tapes first (with label text), then attach MP4s during ingest.</p>
   <p>
     <small>
       NAS:
@@ -30,8 +31,7 @@
           <th>Filesize</th>
           <th>Modified</th>
           <th>Status</th>
-          <th>Attach to Tape</th>
-          <th>Action</th>
+          <th>Attach to Tape (optional)</th>
         </tr>
       </thead>
       <tbody>
@@ -47,36 +47,24 @@
               {% endif %}
             </td>
             <td>
-              {% if unassigned_tapes %}
-                <form method="post" action="{{ url_for('ingest_file') }}">
-                  <input type="hidden" name="filename" value="{{ file.name }}" />
+              <form method="post" action="{{ url_for('ingest_file') }}">
+                <input type="hidden" name="filename" value="{{ file.name }}" />
+                <label>
+                  <small>Attach to Tape (optional)</small><br />
                   <select name="tape_id">
                     <option value="">Auto-create</option>
                     {% for tape in unassigned_tapes %}
+                      {% set display_title = tape.title or tape.source_label or "Untitled" %}
                       <option value="{{ tape.id }}">
-                        {{ tape.tape_code or tape.id }} — {{ tape.title }}
+                        {{ tape.tape_code or tape.id }} — {{ display_title }}
                       </option>
                     {% endfor %}
                   </select>
-                  <button type="submit" {% if file.status != 'new' %}disabled{% endif %}>
-                    Ingest
-                  </button>
-                </form>
-              {% else %}
-                <em>No unassigned tapes.</em>
-              {% endif %}
-            </td>
-            <td>
-              {% if unassigned_tapes %}
-                <!-- action handled within the attach form -->
-              {% else %}
-                <form method="post" action="{{ url_for('ingest_file') }}">
-                  <input type="hidden" name="filename" value="{{ file.name }}" />
-                  <button type="submit" {% if file.status != 'new' %}disabled{% endif %}>
-                    Ingest
-                  </button>
-                </form>
-              {% endif %}
+                </label>
+                <button type="submit" {% if file.status != 'new' %}disabled{% endif %}>
+                  Ingest
+                </button>
+              </form>
             </td>
           </tr>
         {% endfor %}
