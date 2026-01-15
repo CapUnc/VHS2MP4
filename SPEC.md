@@ -32,6 +32,7 @@
 - Add Tape form:
   - date modes: `Exact`, `Range`, or `Unknown`
   - “Lock Date” flag indicates the operator is confident in the date.
+  - Tags are entered as chips to help group tapes later.
 - Review screen: aggregated prompts list.
 - Settings screen: placeholder for environment locations and behavior toggles.
 
@@ -44,6 +45,7 @@
 - Per-project database stores:
   - `tapes`
   - `review_queue`
+- Tags are stored per tape as a normalized list (JSON) for search/grouping.
 - Base schema must be documented and easy to extend.
 
 ## Future pipeline (stub interfaces only)

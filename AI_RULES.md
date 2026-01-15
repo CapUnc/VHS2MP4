@@ -29,6 +29,7 @@ preserve intent, avoid overreach, and keep the project maintainable by humans.
 - Face clusters can be unnamed; use stable placeholder IDs like `Person_0001`.
 - Speech-to-text output is for **context only**, not speaker attribution.
 - Always keep the master index export in scope for future steps.
+- Tags are lightweight metadata for grouping and search; keep them short and consistent.
 
 ## Style
 

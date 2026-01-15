@@ -5,6 +5,33 @@
     <title>VHS2MP4</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" />
+    <style>
+      .tag-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.25rem 0.5rem;
+        margin: 0.15rem;
+        border-radius: 999px;
+        background: #eef2ff;
+        font-size: 0.85rem;
+      }
+      .tag-remove {
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        font-size: 0.85rem;
+      }
+      .tag-suggestion-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+      .tag-suggestion {
+        padding: 0.3rem 0.6rem;
+        border-radius: 999px;
+      }
+    </style>
     <script src="{{ url_for('static', filename='app.js') }}" defer></script>
   </head>
   <body>
@@ -20,6 +47,14 @@
             <li><a href="{{ url_for('settings') }}">Settings</a></li>
           </ul>
         </nav>
+        <p>
+          Active Project:
+          {% if g.active_project %}
+            <strong>{{ g.active_project_name or g.active_project }}</strong>
+          {% else %}
+            <a href="{{ url_for('projects') }}">none</a>
+          {% endif %}
+        </p>
       </header>
       {% block content %}{% endblock %}
     </main>

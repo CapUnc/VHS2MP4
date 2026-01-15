@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS settings (
 PROJECT_SCHEMA = """
 CREATE TABLE IF NOT EXISTS tapes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tape_code TEXT UNIQUE,
     title TEXT NOT NULL,
     source_label TEXT,
     date_type TEXT NOT NULL,
@@ -37,8 +38,10 @@ CREATE TABLE IF NOT EXISTS tapes (
     date_start TEXT,
     date_end TEXT,
     date_locked INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'New',
     notes TEXT,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    tags_json TEXT
 );
 
 CREATE TABLE IF NOT EXISTS review_queue (
@@ -104,9 +107,76 @@ def init_project_db(project_slug: str) -> None:
     conn = get_project_connection(project_slug)
     try:
         conn.executescript(PROJECT_SCHEMA)
+        ensure_project_schema(conn)
         conn.commit()
     finally:
         conn.close()
+
+
+def ensure_project_schema(conn: sqlite3.Connection) -> None:
+    """Ensure required columns exist for the per-project schema."""
+
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(tapes)")}
+
+    if "tape_code" not in columns:
+        conn.execute("ALTER TABLE tapes ADD COLUMN tape_code TEXT")
+    if "status" not in columns:
+        conn.execute("ALTER TABLE tapes ADD COLUMN status TEXT NOT NULL DEFAULT 'New'")
+    if "tags_json" not in columns:
+        conn.execute("ALTER TABLE tapes ADD COLUMN tags_json TEXT")
+    if "created_at" not in columns:
+        conn.execute("ALTER TABLE tapes ADD COLUMN created_at TEXT NOT NULL")
+
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_tapes_tape_code ON tapes(tape_code)"
+    )
+    conn.execute("UPDATE tapes SET status = 'New' WHERE status IS NULL")
+    backfill_tape_codes(conn)
+
+
+def _parse_tape_code(tape_code: str) -> int | None:
+    """Parse a tape code like TAPE_0007 into an integer."""
+
+    if not tape_code:
+        return None
+    if not tape_code.startswith("TAPE_"):
+        return None
+    suffix = tape_code.split("_", 1)[1]
+    if not suffix.isdigit():
+        return None
+    return int(suffix)
+
+
+def get_next_tape_code(conn: sqlite3.Connection) -> str:
+    """Generate the next sequential tape code using existing entries."""
+
+    rows = conn.execute(
+        "SELECT tape_code FROM tapes WHERE tape_code IS NOT NULL"
+    ).fetchall()
+    max_number = 0
+    for row in rows:
+        parsed = _parse_tape_code(row["tape_code"])
+        if parsed and parsed > max_number:
+            max_number = parsed
+    return f"TAPE_{max_number + 1:04d}"
+
+
+def backfill_tape_codes(conn: sqlite3.Connection) -> None:
+    """Assign tape codes to any existing rows missing them."""
+
+    rows = conn.execute(
+        "SELECT id FROM tapes WHERE tape_code IS NULL OR tape_code = '' ORDER BY id"
+    ).fetchall()
+    if not rows:
+        return
+    next_number = _parse_tape_code(get_next_tape_code(conn)) or 1
+    for row in rows:
+        tape_code = f"TAPE_{next_number:04d}"
+        conn.execute(
+            "UPDATE tapes SET tape_code = ? WHERE id = ?",
+            (tape_code, row["id"]),
+        )
+        next_number += 1
 
 
 def get_active_project() -> str | None:
