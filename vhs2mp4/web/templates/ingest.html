@@ -1,0 +1,79 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<section>
+  <h2>Ingest Inbox</h2>
+  <p>Review MP4 files in the active project inbox and ingest them into raw storage.</p>
+  {% if message %}
+    <article>
+      <strong>{{ message }}</strong>
+    </article>
+  {% endif %}
+  {% if inbox_files %}
+    <form method="post" action="{{ url_for('ingest_all') }}">
+      <button type="submit">Ingest All</button>
+    </form>
+    <table>
+      <thead>
+        <tr>
+          <th>Filename</th>
+          <th>Filesize</th>
+          <th>Modified</th>
+          <th>Status</th>
+          <th>Attach to Tape</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for file in inbox_files %}
+          <tr>
+            <td>{{ file.name }}</td>
+            <td>{{ format_bytes(file.size_bytes) }}</td>
+            <td>{{ file.modified_time }}</td>
+            <td>
+              {{ file.status }}
+              {% if file.error %}
+                <br /><small>{{ file.error }}</small>
+              {% endif %}
+            </td>
+            <td>
+              {% if unassigned_tapes %}
+                <form method="post" action="{{ url_for('ingest_file') }}">
+                  <input type="hidden" name="filename" value="{{ file.name }}" />
+                  <select name="tape_id">
+                    <option value="">Auto-create</option>
+                    {% for tape in unassigned_tapes %}
+                      <option value="{{ tape.id }}">
+                        {{ tape.tape_code or tape.id }} — {{ tape.title }}
+                      </option>
+                    {% endfor %}
+                  </select>
+                  <button type="submit" {% if file.status != 'new' %}disabled{% endif %}>
+                    Ingest
+                  </button>
+                </form>
+              {% else %}
+                <em>No unassigned tapes.</em>
+              {% endif %}
+            </td>
+            <td>
+              {% if unassigned_tapes %}
+                <!-- action handled within the attach form -->
+              {% else %}
+                <form method="post" action="{{ url_for('ingest_file') }}">
+                  <input type="hidden" name="filename" value="{{ file.name }}" />
+                  <button type="submit" {% if file.status != 'new' %}disabled{% endif %}>
+                    Ingest
+                  </button>
+                </form>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p>No MP4 files found in the inbox.</p>
+  {% endif %}
+</section>
+{% endblock %}

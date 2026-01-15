@@ -27,8 +27,9 @@ class ReviewItem:
     """Represents a queued review item for operator attention."""
 
     id: int | None
-    tape_id: int
-    item_type: str
-    description: str
-    status: str
     created_at: datetime
+    status: str
+    type: str
+    tape_id: int | None
+    message: str
+    payload_json: str | None
