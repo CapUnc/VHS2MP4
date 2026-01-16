@@ -16,6 +16,17 @@
 - Logs are written to `data/logs/app.log` by default.
 - Confirm the `data/logs/` directory is writable.
 
+## Jobs show "stale"
+
+- A stale job means the server restarted while the job was running.
+- Re-run the action to start a fresh job.
+- Check the job progress page for the `error_text` message to see what happened before the restart.
+
+## Job failures
+
+- Open the job progress page and review the error block for the `error_text` detail.
+- Cross-reference the project log file for stack traces and context.
+
 ## ffmpeg not installed
 
 - Thumbnails, scene suggestions, and segment exports require ffmpeg.

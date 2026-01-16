@@ -9,7 +9,7 @@ import shutil
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from vhs2mp4.config import (
     ensure_nas_project_dirs,
@@ -190,16 +190,25 @@ def _attempt_nas_backup(
         return False, None, str(exc)
 
 
+def _report_progress(
+    progress: Callable | None, percent: int, step: str, detail: str
+) -> None:
+    if progress:
+        progress(percent, step, detail)
+
+
 def ingest_inbox_file(
     conn,
     project_slug: str,
     filename: str,
     tape_id: int | None = None,
+    progress: Callable | None = None,
 ) -> dict[str, Any]:
     """Ingest a single inbox file into raw storage and the database."""
 
     paths = get_project_paths(project_slug)
     inbox_path = paths["inbox_dir"] / filename
+    _report_progress(progress, 5, "Validate inputs", f"Checking {filename}")
     if not inbox_path.exists():
         return {"status": "error", "message": f"File not found: {filename}"}
     if not is_mp4(inbox_path):
@@ -237,6 +246,7 @@ def ingest_inbox_file(
 
     raw_destination = resolve_conflict_path(paths["raw_dir"], inbox_path.name)
     try:
+        _report_progress(progress, 15, "Copy files", f"Copying {filename}")
         shutil.copy2(inbox_path, raw_destination)
     except OSError as exc:
         logger.error(
@@ -247,6 +257,7 @@ def ingest_inbox_file(
             },
         )
         return {"status": "error", "message": f"Copy failed: {exc}"}
+    _report_progress(progress, 40, "Compute checksums", f"Hashing {filename}")
     raw_hash = compute_sha256(raw_destination)
     if raw_hash != source_hash:
         logger.warning(
@@ -261,6 +272,7 @@ def ingest_inbox_file(
             },
         )
 
+    _report_progress(progress, 70, "Write DB rows", "Saving ingest metadata")
     now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
     if tape_id:
         conn.execute(
@@ -335,6 +347,7 @@ def ingest_inbox_file(
             },
         )
 
+    _report_progress(progress, 85, "NAS backup attempt", "Copying to NAS")
     backup_status = "backed_up"
     success, nas_path, error = _attempt_nas_backup(project_slug, raw_destination)
     if not success:
@@ -372,6 +385,7 @@ def ingest_inbox_file(
             },
         },
     )
+    _report_progress(progress, 100, "Done", "Ingest completed")
     return {
         "status": "ingested",
         "message": f"Ingested {filename}.",

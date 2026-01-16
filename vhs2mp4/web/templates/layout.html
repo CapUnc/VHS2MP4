@@ -42,6 +42,36 @@
         padding: 0.3rem 0.6rem;
         border-radius: 999px;
       }
+      .job-progress-card {
+        padding: 1.5rem;
+      }
+      #job-progress {
+        width: 100%;
+        height: 1rem;
+      }
+      #job-percent {
+        margin-top: 0.5rem;
+        font-weight: 600;
+      }
+      .job-error {
+        margin-top: 1rem;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border: 1px solid #fecaca;
+        background: #fee2e2;
+        color: #7f1d1d;
+      }
+      .job-error pre {
+        white-space: pre-wrap;
+        margin: 0.5rem 0 0;
+      }
+      .job-actions {
+        margin-top: 1.5rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        align-items: center;
+      }
     </style>
     <script src="{{ url_for('static', filename='app.js') }}" defer></script>
   </head>

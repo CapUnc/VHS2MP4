@@ -1,0 +1,25 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<section>
+  <h2>Job Progress</h2>
+  <article class="job-progress-card" data-job-id="{{ job_id }}" data-back-url="{{ back_url }}">
+    <p><strong>Status:</strong> <span id="job-status">{{ job.status }}</span></p>
+    <progress id="job-progress" value="{{ job.percent }}" max="100"></progress>
+    <p id="job-percent">{{ job.percent }}%</p>
+    <p><strong>Step:</strong> <span id="job-step">{{ job.current_step or "Queued" }}</span></p>
+    <p id="job-detail">{{ job.detail }}</p>
+    <div id="job-error" class="job-error" hidden>
+      <p><strong>There was a problem completing this job.</strong></p>
+      <pre id="job-error-text"></pre>
+    </div>
+    <div class="job-actions">
+      <form method="post" action="{{ url_for('job_cancel', job_id=job_id) }}">
+        <input type="hidden" name="back" value="{{ back_url }}" />
+        <button type="submit" id="job-cancel-button">Cancel Job</button>
+      </form>
+      <a href="{{ back_url }}" id="job-back-link" class="secondary">Back</a>
+    </div>
+  </article>
+</section>
+{% endblock %}

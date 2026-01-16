@@ -165,3 +165,100 @@
   hydrateTags();
   syncHiddenInput();
 })();
+
+(() => {
+  const jobCard = document.querySelector('[data-job-id]');
+  if (!jobCard) {
+    return;
+  }
+
+  const jobId = jobCard.dataset.jobId;
+  const backUrl = jobCard.dataset.backUrl || '/';
+  const statusEl = document.querySelector('#job-status');
+  const progressEl = document.querySelector('#job-progress');
+  const percentEl = document.querySelector('#job-percent');
+  const stepEl = document.querySelector('#job-step');
+  const detailEl = document.querySelector('#job-detail');
+  const errorEl = document.querySelector('#job-error');
+  const errorTextEl = document.querySelector('#job-error-text');
+  const cancelButton = document.querySelector('#job-cancel-button');
+  const backLink = document.querySelector('#job-back-link');
+
+  if (backLink) {
+    backLink.href = backUrl;
+  }
+
+  const updateDisplay = (data) => {
+    if (statusEl) {
+      statusEl.textContent = data.status;
+    }
+    if (progressEl) {
+      progressEl.value = data.percent ?? 0;
+    }
+    if (percentEl) {
+      percentEl.textContent = `${data.percent ?? 0}%`;
+    }
+    if (stepEl) {
+      stepEl.textContent = data.current_step || 'Queued';
+    }
+    if (detailEl) {
+      detailEl.textContent = data.detail || '';
+    }
+  };
+
+  const showError = (message) => {
+    if (errorTextEl) {
+      errorTextEl.textContent = message || 'Unknown error.';
+    }
+    if (errorEl) {
+      errorEl.hidden = false;
+    }
+  };
+
+  const handleTerminalState = (data) => {
+    if (cancelButton) {
+      cancelButton.disabled = true;
+    }
+    if (data.status === 'success') {
+      const redirectUrl = data.result?.redirect_url || '/';
+      window.location.assign(redirectUrl);
+      return true;
+    }
+    if (['failed', 'stale', 'canceled'].includes(data.status)) {
+      const message =
+        data.error_text ||
+        (data.status === 'canceled'
+          ? 'Job canceled.'
+          : 'Job failed. See details below.');
+      showError(message);
+      return true;
+    }
+    return false;
+  };
+
+  const pollStatus = async () => {
+    try {
+      const response = await fetch(`/jobs/${jobId}/status`, { cache: 'no-store' });
+      if (!response.ok) {
+        throw new Error('Unable to fetch job status.');
+      }
+      const data = await response.json();
+      updateDisplay(data);
+      if (handleTerminalState(data)) {
+        clearInterval(timer);
+      }
+    } catch (error) {
+      if (statusEl) {
+        statusEl.textContent = 'connection error';
+      }
+      showError('Unable to reach the server. Please try again.');
+      if (cancelButton) {
+        cancelButton.disabled = true;
+      }
+      clearInterval(timer);
+    }
+  };
+
+  const timer = setInterval(pollStatus, 750);
+  pollStatus();
+})();

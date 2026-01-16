@@ -23,7 +23,8 @@
 2. Navigate to **Ingest** and review file metadata + ingest status.
 3. Attach files to existing tapes (optional) or let ingest auto-create tapes.
 4. Click **Ingest** for a single file or **Ingest All** for the inbox.
-5. Verify NAS backup status via the review queue if a backup is needed.
+5. A progress page appears while ingest runs; it redirects automatically on success.
+6. Verify NAS backup status via the review queue if a backup is needed.
 
 ## 3. Review queue workflow
 
@@ -41,6 +42,7 @@
 6. Click **Accept Suggestions** to create segment rows.
 7. Click **Export Segment Clips** to generate separate MP4s for each segment without changing the raw file.
 8. If suggestions are not meaningful, choose **Ignore Suggestions** to clear the review item.
+9. Long-running actions show a progress page and redirect when complete.
 
 ## 5. Face clustering workflow (future)
 

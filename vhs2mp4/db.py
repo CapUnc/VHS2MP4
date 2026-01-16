@@ -6,8 +6,10 @@ while each project stores tapes and review queue items in its own database.
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 
 from vhs2mp4.config import (
@@ -99,6 +101,22 @@ CREATE TABLE IF NOT EXISTS segments (
     export_status TEXT DEFAULT 'not_exported',
     FOREIGN KEY (tape_id) REFERENCES tapes(id)
 );
+
+CREATE TABLE IF NOT EXISTS jobs (
+    id INTEGER PRIMARY KEY,
+    job_type TEXT NOT NULL,
+    status TEXT NOT NULL,
+    percent INTEGER NOT NULL DEFAULT 0,
+    current_step TEXT DEFAULT '',
+    detail TEXT DEFAULT '',
+    tape_id INTEGER NULL,
+    payload_json TEXT DEFAULT '',
+    result_json TEXT DEFAULT '',
+    error_text TEXT DEFAULT '',
+    created_at TEXT NOT NULL,
+    started_at TEXT DEFAULT '',
+    finished_at TEXT DEFAULT ''
+);
 """
 
 
@@ -157,6 +175,7 @@ def init_project_db(project_slug: str) -> None:
         conn.commit()
     finally:
         conn.close()
+    mark_stale_jobs_on_startup(project_slug)
 
 
 def ensure_project_schema(conn: sqlite3.Connection, project_slug: str) -> None:
@@ -288,6 +307,28 @@ def ensure_project_schema(conn: sqlite3.Connection, project_slug: str) -> None:
             output_sha256 TEXT,
             export_status TEXT DEFAULT 'not_exported',
             FOREIGN KEY (tape_id) REFERENCES tapes(id)
+        )
+        """,
+    )
+    _create_table_if_missing(
+        conn,
+        project_slug,
+        "jobs",
+        """
+        CREATE TABLE IF NOT EXISTS jobs (
+            id INTEGER PRIMARY KEY,
+            job_type TEXT NOT NULL,
+            status TEXT NOT NULL,
+            percent INTEGER NOT NULL DEFAULT 0,
+            current_step TEXT DEFAULT '',
+            detail TEXT DEFAULT '',
+            tape_id INTEGER NULL,
+            payload_json TEXT DEFAULT '',
+            result_json TEXT DEFAULT '',
+            error_text TEXT DEFAULT '',
+            created_at TEXT NOT NULL,
+            started_at TEXT DEFAULT '',
+            finished_at TEXT DEFAULT ''
         )
         """,
     )
@@ -448,3 +489,139 @@ def set_active_project(project_slug: str) -> None:
         "Activated project",
         extra={"event": "project_activated", "context": {"project_slug": project_slug}},
     )
+
+
+def create_job(
+    job_type: str,
+    tape_id: int | None = None,
+    payload: dict | None = None,
+    project_slug: str | None = None,
+) -> int:
+    """Create a new background job and return its ID."""
+
+    slug = project_slug or get_active_project()
+    if not slug:
+        raise RuntimeError("No active project available to create job.")
+    conn = get_project_connection(slug)
+    try:
+        now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        payload_json = json.dumps(payload or {})
+        conn.execute(
+            """
+            INSERT INTO jobs
+                (job_type, status, percent, current_step, detail, tape_id, payload_json, created_at)
+            VALUES (?, 'queued', 0, '', '', ?, ?, ?)
+            """,
+            (job_type, tape_id, payload_json, now),
+        )
+        job_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        conn.commit()
+        return int(job_id)
+    finally:
+        conn.close()
+
+
+def update_job(
+    job_id: int,
+    percent: int | None = None,
+    step: str | None = None,
+    detail: str | None = None,
+    status: str | None = None,
+    result: dict | None = None,
+    error: str | None = None,
+    project_slug: str | None = None,
+) -> None:
+    """Update fields on a background job."""
+
+    slug = project_slug or get_active_project()
+    if not slug:
+        raise RuntimeError("No active project available to update job.")
+    conn = get_project_connection(slug)
+    try:
+        fields: list[str] = []
+        values: list[object] = []
+        if percent is not None:
+            fields.append("percent = ?")
+            values.append(max(0, min(100, int(percent))))
+        if step is not None:
+            fields.append("current_step = ?")
+            values.append(step)
+        if detail is not None:
+            fields.append("detail = ?")
+            values.append(detail)
+        if status is not None:
+            fields.append("status = ?")
+            values.append(status)
+            now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+            if status == "running":
+                fields.append(
+                    "started_at = CASE WHEN started_at = '' THEN ? ELSE started_at END"
+                )
+                values.append(now)
+            if status in {"success", "failed", "canceled", "stale"}:
+                fields.append(
+                    "finished_at = CASE WHEN finished_at = '' THEN ? ELSE finished_at END"
+                )
+                values.append(now)
+        if result is not None:
+            fields.append("result_json = ?")
+            values.append(json.dumps(result))
+        if error is not None:
+            fields.append("error_text = ?")
+            values.append(error)
+        if not fields:
+            return
+        values.append(job_id)
+        conn.execute(f"UPDATE jobs SET {', '.join(fields)} WHERE id = ?", values)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_job(job_id: int, project_slug: str | None = None) -> dict | None:
+    """Return a job row as a dictionary."""
+
+    slug = project_slug or get_active_project()
+    if not slug:
+        raise RuntimeError("No active project available to load job.")
+    conn = get_project_connection(slug)
+    try:
+        row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def mark_stale_jobs_on_startup(project_slug: str) -> None:
+    """Mark running jobs as stale when the server restarts."""
+
+    conn = get_project_connection(project_slug)
+    try:
+        now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        cursor = conn.execute(
+            """
+            UPDATE jobs
+            SET status = 'stale',
+                error_text = CASE
+                    WHEN error_text = '' THEN 'Job marked stale after server restart.'
+                    ELSE error_text
+                END,
+                finished_at = CASE WHEN finished_at = '' THEN ? ELSE finished_at END
+            WHERE status = 'running'
+            """,
+            (now,),
+        )
+        conn.commit()
+        if cursor.rowcount:
+            logging.info(
+                "Marked running jobs as stale on startup",
+                extra={
+                    "event": "jobs_marked_stale",
+                    "context": {
+                        "project_slug": project_slug,
+                        "count": cursor.rowcount,
+                    },
+                },
+            )
+    finally:
+        conn.close()
