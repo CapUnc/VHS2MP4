@@ -18,7 +18,7 @@
 
 ## ffmpeg not installed
 
-- Thumbnails and scene suggestions require ffmpeg.
+- Thumbnails, scene suggestions, and segment exports require ffmpeg.
 - Install on macOS with: `brew install ffmpeg`.
 - The app remains usable without ffmpeg; media processing buttons will show a reminder.
 
@@ -28,10 +28,22 @@
 - Look for events like `thumbnail_failed` or `scene_detection_failed` for details.
 - Ensure the raw MP4 exists at the stored path and is readable.
 
-## Why files are not auto-split yet
+## Segment export uses stream copy then fallback
+
+- Segment export first uses stream copy (`-c copy`) for speed.
+- If copy fails, the app falls back to a re-encode (libx264 + aac, medium preset).
+- Check logs for `segment_export_copy_failed` or `segment_export_failed` events if clips are missing.
+
+## Segment exports are missing
+
+- Exported clips live in `/Users/Sather/Documents/VHS2MP4/<project>/02_segments/<tape_code>/`.
+- Re-running export skips existing files unless you force a re-export later.
+- If exports fail, a `needs_export_review` item appears in the review queue.
+
+## Why files are not auto-split automatically
 
 - Suggested splits are only stored as boundaries for review.
-- Actual file splitting will be added in a later phase once workflows are vetted.
+- Clips are only created after you accept suggestions (or create segments manually) and click **Export Segment Clips**.
 
 ## NAS not mounted
 

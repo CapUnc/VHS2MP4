@@ -38,7 +38,9 @@
 3. Thumbnails are captured at 10% into the tape (clamped to 1-30 seconds) and scaled to 640px wide.
 4. Scene suggestions favor segments of at least 90 seconds and will merge down to a maximum of 12.
 5. Review suggested splits carefully. Accept only if the tape truly contains distinct events.
-6. If suggestions are not meaningful, choose **Ignore Suggestions** to clear the review item.
+6. Click **Accept Suggestions** to create segment rows.
+7. Click **Export Segment Clips** to generate separate MP4s for each segment without changing the raw file.
+8. If suggestions are not meaningful, choose **Ignore Suggestions** to clear the review item.
 
 ## 5. Face clustering workflow (future)
 
