@@ -51,6 +51,11 @@ CREATE TABLE IF NOT EXISTS tapes (
     sha256 TEXT,
     ingested_at TEXT,
     backup_status TEXT,
+    duration_seconds REAL,
+    file_size_bytes INTEGER,
+    thumb_path TEXT DEFAULT '',
+    thumb_generated_at TEXT,
+    scene_suggested INTEGER DEFAULT 0,
     notes TEXT,
     created_at TEXT NOT NULL,
     tags_json TEXT
@@ -64,6 +69,29 @@ CREATE TABLE IF NOT EXISTS review_items (
     tape_id INTEGER,
     message TEXT NOT NULL,
     payload_json TEXT,
+    FOREIGN KEY (tape_id) REFERENCES tapes(id)
+);
+
+CREATE TABLE IF NOT EXISTS segment_suggestions (
+    id INTEGER PRIMARY KEY,
+    tape_id INTEGER NOT NULL,
+    start_seconds REAL NOT NULL,
+    end_seconds REAL NOT NULL,
+    confidence REAL DEFAULT NULL,
+    created_at TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',
+    notes TEXT DEFAULT '',
+    FOREIGN KEY (tape_id) REFERENCES tapes(id)
+);
+
+CREATE TABLE IF NOT EXISTS segments (
+    id INTEGER PRIMARY KEY,
+    tape_id INTEGER NOT NULL,
+    start_seconds REAL NOT NULL,
+    end_seconds REAL NOT NULL,
+    title TEXT DEFAULT '',
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
     FOREIGN KEY (tape_id) REFERENCES tapes(id)
 );
 """
@@ -166,26 +194,45 @@ def ensure_project_schema(conn: sqlite3.Connection, project_slug: str) -> None:
     if "label_is_guess" not in columns:
         conn.execute("ALTER TABLE tapes ADD COLUMN label_is_guess INTEGER DEFAULT 0")
         applied_migrations.append("label_is_guess")
+    if "duration_seconds" not in columns:
+        conn.execute("ALTER TABLE tapes ADD COLUMN duration_seconds REAL")
+        applied_migrations.append("duration_seconds")
+    if "file_size_bytes" not in columns:
+        conn.execute("ALTER TABLE tapes ADD COLUMN file_size_bytes INTEGER")
+        applied_migrations.append("file_size_bytes")
+    if "thumb_path" not in columns:
+        conn.execute("ALTER TABLE tapes ADD COLUMN thumb_path TEXT DEFAULT ''")
+        applied_migrations.append("thumb_path")
+    if "thumb_generated_at" not in columns:
+        conn.execute("ALTER TABLE tapes ADD COLUMN thumb_generated_at TEXT")
+        applied_migrations.append("thumb_generated_at")
+    if "scene_suggested" not in columns:
+        conn.execute("ALTER TABLE tapes ADD COLUMN scene_suggested INTEGER DEFAULT 0")
+        applied_migrations.append("scene_suggested")
 
     if applied_migrations:
         _clear_project_logs(project_slug)
-        logging.info(
-            "Applied project tape schema migrations",
-            extra={
-                "event": "project_schema_migrated",
-                "context": {
-                    "project_slug": project_slug,
-                    "columns": applied_migrations,
+        for migration in applied_migrations:
+            logging.info(
+                "Applied project tape schema migration",
+                extra={
+                    "event": "project_schema_migrated",
+                    "context": {
+                        "project_slug": project_slug,
+                        "migration": migration,
+                    },
                 },
-            },
-        )
+            )
 
     conn.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_tapes_tape_code ON tapes(tape_code)"
     )
     conn.execute("UPDATE tapes SET status = 'New' WHERE status IS NULL")
     backfill_tape_codes(conn)
-    conn.execute(
+    _create_table_if_missing(
+        conn,
+        project_slug,
+        "review_items",
         """
         CREATE TABLE IF NOT EXISTS review_items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -197,7 +244,64 @@ def ensure_project_schema(conn: sqlite3.Connection, project_slug: str) -> None:
             payload_json TEXT,
             FOREIGN KEY (tape_id) REFERENCES tapes(id)
         )
+        """,
+    )
+    _create_table_if_missing(
+        conn,
+        project_slug,
+        "segment_suggestions",
         """
+        CREATE TABLE IF NOT EXISTS segment_suggestions (
+            id INTEGER PRIMARY KEY,
+            tape_id INTEGER NOT NULL,
+            start_seconds REAL NOT NULL,
+            end_seconds REAL NOT NULL,
+            confidence REAL DEFAULT NULL,
+            created_at TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'open',
+            notes TEXT DEFAULT '',
+            FOREIGN KEY (tape_id) REFERENCES tapes(id)
+        )
+        """,
+    )
+    _create_table_if_missing(
+        conn,
+        project_slug,
+        "segments",
+        """
+        CREATE TABLE IF NOT EXISTS segments (
+            id INTEGER PRIMARY KEY,
+            tape_id INTEGER NOT NULL,
+            start_seconds REAL NOT NULL,
+            end_seconds REAL NOT NULL,
+            title TEXT DEFAULT '',
+            created_by TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (tape_id) REFERENCES tapes(id)
+        )
+        """,
+    )
+
+
+def _create_table_if_missing(
+    conn: sqlite3.Connection, project_slug: str, table_name: str, ddl: str
+) -> None:
+    """Create a table if missing, logging when the table is created."""
+
+    row = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name = ?",
+        (table_name,),
+    ).fetchone()
+    if row:
+        return
+    _clear_project_logs(project_slug)
+    conn.execute(ddl)
+    logging.info(
+        "Applied project schema migration",
+        extra={
+            "event": "project_schema_migrated",
+            "context": {"project_slug": project_slug, "migration": table_name},
+        },
     )
 
 

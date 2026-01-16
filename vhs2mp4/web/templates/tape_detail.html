@@ -23,6 +23,8 @@
       {% if tape.raw_filename %}
         <p><strong>Raw File:</strong> {{ tape.raw_filename }}</p>
         <p><strong>Ingested At:</strong> {{ tape.ingested_at or "—" }}</p>
+        <p><strong>Duration:</strong> {{ format_timestamp(tape.duration_seconds) }}</p>
+        <p><strong>File Size:</strong> {{ format_bytes(tape.file_size_bytes) if tape.file_size_bytes else "—" }}</p>
         <details>
           <summary>Raw file details</summary>
           <p><strong>Raw Path:</strong> {{ tape.raw_path or "—" }}</p>
@@ -36,6 +38,34 @@
       <p><strong>Backup Status:</strong> {{ tape.backup_status or "—" }}</p>
       <p><strong>Tags:</strong> {{ tags | join(", ") if tags else "—" }}</p>
       <p><strong>Notes:</strong> {{ tape.notes or "—" }}</p>
+      <h4>Thumbnail</h4>
+      {% if tape.thumb_path %}
+        <img src="{{ url_for('tape_thumbnail', tape_id=tape.id) }}" alt="Thumbnail for {{ tape.tape_code }}" style="max-width: 100%; height: auto;" />
+      {% else %}
+        <p>No thumbnail yet.</p>
+      {% endif %}
+      {% if not ffmpeg_available %}
+        <p><strong>ffmpeg is not installed.</strong> Install with <code>brew install ffmpeg</code> to enable thumbnails and scene suggestions.</p>
+      {% endif %}
+      <form method="post" action="{{ url_for('process_media', tape_id=tape.id) }}">
+        <button type="submit">Generate Thumbnail + Suggest Scene Splits</button>
+      </form>
+      <h4>Suggested Splits</h4>
+      {% if suggestions %}
+        <ul>
+          {% for suggestion in suggestions %}
+            <li>Segment {{ loop.index }}: {{ format_timestamp(suggestion.start_seconds) }} to {{ format_timestamp(suggestion.end_seconds) }}</li>
+          {% endfor %}
+        </ul>
+        <form method="post" action="{{ url_for('accept_suggestions', tape_id=tape.id) }}">
+          <button type="submit">Accept Suggestions</button>
+        </form>
+        <form method="post" action="{{ url_for('ignore_suggestions', tape_id=tape.id) }}">
+          <button type="submit">Ignore Suggestions</button>
+        </form>
+      {% else %}
+        <p>No major scene changes detected.</p>
+      {% endif %}
     </article>
     <section>
       <h3>Review Queue</h3>
