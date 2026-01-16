@@ -9,9 +9,10 @@
     <small>
       NAS:
       {% if nas_available %}
-        Available
+        <span class="nas-pill nas-pill--available">Available</span>
       {% else %}
-        Not Available (backups will be queued)
+        <span class="nas-pill nas-pill--unavailable">Not Available</span>
+        (backups will be queued)
       {% endif %}
     </small>
   </p>
@@ -24,45 +25,63 @@
     <form method="post" action="{{ url_for('ingest_start_all') }}">
       <button type="submit">Ingest All</button>
     </form>
-    <table>
+    {# Compact table layout keeps the list scannable without changing backend behavior. #}
+    <table class="ingest-table">
       <thead>
         <tr>
-          <th>Filename</th>
-          <th>Filesize</th>
-          <th>Modified</th>
+          <th>File</th>
+          <th>Size</th>
           <th>Status</th>
-          <th>Attach to Tape (optional)</th>
+          <th>Attach</th>
+          <th>Action</th>
         </tr>
       </thead>
       <tbody>
         {% for file in inbox_files %}
           <tr>
-            <td>{{ file.name }}</td>
-            <td>{{ format_bytes(file.size_bytes) }}</td>
-            <td>{{ file.modified_time }}</td>
-            <td>
-              {{ file.status }}
+            <td class="ingest-file-cell">
+              <span class="ingest-file-name" title="{{ file.name }}">{{ file.name }}</span>
+              <span class="ingest-file-meta">{{ file.modified_time }}</span>
+            </td>
+            <td class="ingest-size-cell">{{ format_bytes(file.size_bytes) }}</td>
+            <td class="ingest-status-cell">
+              <span class="status-pill status-pill--{{ file.status }}">
+                {{ file.status }}
+              </span>
               {% if file.error %}
-                <br /><small>{{ file.error }}</small>
+                <br /><small class="ingest-error">{{ file.error }}</small>
               {% endif %}
             </td>
-            <td>
-              <form method="post" action="{{ url_for('ingest_start_file') }}">
+            {% set form_id = "ingest-row-" ~ loop.index %}
+            <td class="ingest-attach-cell">
+              <select
+                name="tape_id"
+                form="{{ form_id }}"
+                {% if file.status == 'ingested' %}disabled{% endif %}
+              >
+                <option value="">Auto-create</option>
+                {% for tape in unassigned_tapes %}
+                  {% set display_title = tape.title or tape.source_label or "Untitled" %}
+                  <option value="{{ tape.id }}">
+                    {{ tape.tape_code or tape.id }} — {{ display_title }}
+                  </option>
+                {% endfor %}
+              </select>
+            </td>
+            <td class="ingest-action-cell">
+              <form
+                method="post"
+                action="{{ url_for('ingest_start_file') }}"
+                id="{{ form_id }}"
+                class="ingest-row-form"
+              >
                 <input type="hidden" name="filename" value="{{ file.name }}" />
-                <label>
-                  <small>Attach to Tape (optional)</small><br />
-                  <select name="tape_id">
-                    <option value="">Auto-create</option>
-                    {% for tape in unassigned_tapes %}
-                      {% set display_title = tape.title or tape.source_label or "Untitled" %}
-                      <option value="{{ tape.id }}">
-                        {{ tape.tape_code or tape.id }} — {{ display_title }}
-                      </option>
-                    {% endfor %}
-                  </select>
-                </label>
                 <button type="submit" {% if file.status != 'new' %}disabled{% endif %}>
-                  Ingest
+                  {% if file.status == 'ingested' %}
+                    Ingested
+                  {% else %}
+                    Ingest
+                  {% endif %}
                 </button>
               </form>
             </td>
