@@ -72,6 +72,107 @@
         gap: 1rem;
         align-items: center;
       }
+      /* Ingest table styles keep the inbox compact and scannable. */
+      .ingest-table {
+        table-layout: fixed;
+      }
+      .ingest-table thead th {
+        position: sticky;
+        top: 0;
+        background: var(--pico-card-background-color, #111827);
+        z-index: 1;
+      }
+      .ingest-table th,
+      .ingest-table td {
+        padding: 0.5rem 0.75rem;
+        vertical-align: top;
+      }
+      .ingest-table tbody tr {
+        border-bottom: 1px solid var(--pico-muted-border-color, #1f2937);
+      }
+      .ingest-table th:nth-child(1) {
+        width: 40%;
+      }
+      .ingest-table th:nth-child(2) {
+        width: 12%;
+      }
+      .ingest-table th:nth-child(3) {
+        width: 16%;
+      }
+      .ingest-table th:nth-child(4) {
+        width: 20%;
+      }
+      .ingest-table th:nth-child(5) {
+        width: 12%;
+      }
+      .ingest-file-name {
+        display: block;
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .ingest-file-meta {
+        display: block;
+        font-size: 0.75rem;
+        color: var(--pico-muted-color, #94a3b8);
+      }
+      .ingest-status-cell small {
+        display: inline-block;
+        margin-top: 0.25rem;
+      }
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.15rem 0.5rem;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: capitalize;
+        background: rgba(148, 163, 184, 0.2);
+        color: var(--pico-muted-color, #cbd5f5);
+      }
+      .status-pill--new {
+        background: rgba(34, 197, 94, 0.2);
+        color: #bbf7d0;
+      }
+      .status-pill--ingested {
+        background: rgba(100, 116, 139, 0.25);
+        color: #e2e8f0;
+      }
+      .status-pill--error {
+        background: rgba(239, 68, 68, 0.2);
+        color: #fecaca;
+      }
+      .ingest-row-form {
+        margin: 0;
+      }
+      .ingest-attach-cell select {
+        margin: 0;
+        width: 100%;
+      }
+      .ingest-action-cell button {
+        margin: 0;
+        width: 100%;
+      }
+      .nas-pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.1rem 0.45rem;
+        border-radius: 999px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+      }
+      .nas-pill--available {
+        background: rgba(34, 197, 94, 0.2);
+        color: #bbf7d0;
+      }
+      .nas-pill--unavailable {
+        background: rgba(234, 179, 8, 0.2);
+        color: #fde68a;
+      }
     </style>
     <script src="{{ url_for('static', filename='app.js') }}" defer></script>
   </head>
