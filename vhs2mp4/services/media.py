@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 _SCENE_THRESHOLD = 0.35
 _MIN_SEGMENT_SECONDS = 90.0
+_MAX_SEGMENTS = 12
 
 
 @dataclass(frozen=True)
@@ -113,28 +114,71 @@ def _parse_pts_times(stderr: str) -> list[float]:
 def _merge_short_segments(segments: Iterable[SceneSuggestion]) -> list[SceneSuggestion]:
     """Merge segments shorter than the minimum threshold."""
 
-    merged: list[SceneSuggestion] = []
-    for segment in segments:
-        if not merged:
-            merged.append(segment)
+    merged = list(segments)
+    index = 0
+    while index < len(merged):
+        segment = merged[index]
+        length = segment.end_seconds - segment.start_seconds
+        if length >= _MIN_SEGMENT_SECONDS or len(merged) == 1:
+            index += 1
             continue
-        current = merged[-1]
-        if (segment.end_seconds - segment.start_seconds) < _MIN_SEGMENT_SECONDS:
-            merged[-1] = SceneSuggestion(
-                start_seconds=current.start_seconds,
-                end_seconds=segment.end_seconds,
-                confidence=current.confidence,
+        if index == 0:
+            next_segment = merged[index + 1]
+            merged[index] = SceneSuggestion(
+                start_seconds=segment.start_seconds,
+                end_seconds=next_segment.end_seconds,
+                confidence=segment.confidence,
             )
+            del merged[index + 1]
             continue
-        if (current.end_seconds - current.start_seconds) < _MIN_SEGMENT_SECONDS:
-            merged[-1] = SceneSuggestion(
-                start_seconds=current.start_seconds,
-                end_seconds=segment.end_seconds,
-                confidence=current.confidence,
-            )
-            continue
-        merged.append(segment)
+        previous = merged[index - 1]
+        merged[index - 1] = SceneSuggestion(
+            start_seconds=previous.start_seconds,
+            end_seconds=segment.end_seconds,
+            confidence=previous.confidence,
+        )
+        del merged[index]
+        index = max(0, index - 1)
     return merged
+
+
+def _limit_segment_count(
+    segments: Iterable[SceneSuggestion], max_segments: int = _MAX_SEGMENTS
+) -> list[SceneSuggestion]:
+    """Merge adjacent segments until the list is within the max count."""
+
+    limited = list(segments)
+    while len(limited) > max_segments and len(limited) > 1:
+        shortest_index = min(
+            range(len(limited)),
+            key=lambda idx: limited[idx].end_seconds - limited[idx].start_seconds,
+        )
+        if shortest_index == 0:
+            neighbor = limited[1]
+            limited[0] = SceneSuggestion(
+                start_seconds=limited[0].start_seconds,
+                end_seconds=neighbor.end_seconds,
+                confidence=limited[0].confidence,
+            )
+            del limited[1]
+            continue
+        previous = limited[shortest_index - 1]
+        current = limited[shortest_index]
+        limited[shortest_index - 1] = SceneSuggestion(
+            start_seconds=previous.start_seconds,
+            end_seconds=current.end_seconds,
+            confidence=previous.confidence,
+        )
+        del limited[shortest_index]
+    return limited
+
+
+def _select_thumbnail_timestamp(duration_seconds: float | None) -> float:
+    """Return the seek time for thumbnail extraction."""
+
+    if duration_seconds:
+        return max(1.0, min(30.0, duration_seconds * 0.10))
+    return 10.0
 
 
 def get_video_metadata(path: str | Path) -> MediaMetadata:
@@ -262,10 +306,7 @@ def generate_thumbnail(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     duration = _get_duration_seconds(Path(video_path))
-    if duration:
-        seek_seconds = max(1.0, min(duration * 0.1, 30.0))
-    else:
-        seek_seconds = 1.0
+    seek_seconds = _select_thumbnail_timestamp(duration)
     args = [
         ffmpeg,
         "-y" if force else "-n",
@@ -394,6 +435,8 @@ def suggest_scene_segments(video_path: str | Path) -> list[SceneSuggestion]:
     for cut in cut_points:
         if cut <= start:
             continue
+        if (cut - start) < _MIN_SEGMENT_SECONDS:
+            continue
         segments.append(
             SceneSuggestion(
                 start_seconds=start,
@@ -412,6 +455,7 @@ def suggest_scene_segments(video_path: str | Path) -> list[SceneSuggestion]:
         )
 
     merged = _merge_short_segments(segments)
+    merged = _limit_segment_count(merged)
     if len(merged) <= 1:
         return []
     return merged
