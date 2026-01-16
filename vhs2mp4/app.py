@@ -45,6 +45,12 @@ from vhs2mp4.services.ingest import (
     list_unassigned_tapes,
     retry_backup,
 )
+from vhs2mp4.services.media import (
+    generate_thumbnail,
+    get_video_metadata,
+    is_ffmpeg_available,
+    suggest_scene_segments,
+)
 
 STATUS_OPTIONS = ("New", "Ingested", "Mastered", "Reviewed", "Final")
 DATE_TYPE_OPTIONS = ("exact", "range", "unknown")
@@ -134,6 +140,20 @@ def serialize_tags(tags_json: str | None) -> str:
         return ""
     cleaned = [tag.strip() for tag in tags if isinstance(tag, str) and tag.strip()]
     return ", ".join(cleaned)
+
+
+def format_timestamp(seconds: float | None) -> str:
+    """Format seconds into H:MM:SS for display."""
+
+    if seconds is None:
+        return "—"
+    total_seconds = max(0, int(seconds))
+    hours = total_seconds // 3600
+    minutes = (total_seconds % 3600) // 60
+    secs = total_seconds % 60
+    if hours:
+        return f"{hours}:{minutes:02d}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"
 
 
 def determine_backup_status(tape_row, needs_backup_open: int) -> str:
@@ -594,9 +614,20 @@ def create_app() -> Flask:
             "SELECT * FROM review_items WHERE tape_id = ? ORDER BY created_at DESC",
             (tape_id,),
         ).fetchall()
+        suggestions = conn.execute(
+            """
+            SELECT *
+            FROM segment_suggestions
+            WHERE tape_id = ? AND status = 'open'
+            ORDER BY start_seconds ASC
+            """,
+            (tape_id,),
+        ).fetchall()
         conn.close()
         if tape is None:
-            return render_template("tape_detail.html", tape=None, review_items=[])
+            return render_template(
+                "tape_detail.html", tape=None, review_items=[], suggestions=[]
+            )
         tags = []
         if tape["tags_json"]:
             try:
@@ -607,8 +638,242 @@ def create_app() -> Flask:
             "tape_detail.html",
             tape=tape,
             review_items=review_items,
+            suggestions=suggestions,
             tags=tags,
+            format_bytes=format_bytes,
+            format_timestamp=format_timestamp,
+            ffmpeg_available=is_ffmpeg_available(),
         )
+
+    @app.route("/tapes/<int:tape_id>/thumbnail")
+    def tape_thumbnail(tape_id: int):
+        """Serve a tape thumbnail image."""
+
+        conn = get_project_connection(g.active_project)
+        tape = conn.execute(
+            "SELECT tape_code, thumb_path FROM tapes WHERE id = ?",
+            (tape_id,),
+        ).fetchone()
+        conn.close()
+        if not tape or not tape["thumb_path"]:
+            return ("Not Found", 404)
+        project_root = g.project_paths["project_root"].resolve()
+        thumb_path = (project_root / tape["thumb_path"]).resolve()
+        if project_root not in thumb_path.parents or not thumb_path.exists():
+            return ("Not Found", 404)
+        return send_file(thumb_path, mimetype="image/jpeg")
+
+    @app.route("/tapes/<int:tape_id>/process_media", methods=["POST"])
+    def process_media(tape_id: int) -> str:
+        """Generate thumbnails and scene suggestions for a tape."""
+
+        conn = get_project_connection(g.active_project)
+        tape = conn.execute("SELECT * FROM tapes WHERE id = ?", (tape_id,)).fetchone()
+        if not tape:
+            conn.close()
+            flash("Tape not found.")
+            return redirect(url_for("library"))
+        if not tape["raw_path"]:
+            conn.close()
+            flash("Raw file path missing. Ingest the tape before processing media.")
+            return redirect(url_for("tape_detail", tape_id=tape_id))
+        raw_path = Path(tape["raw_path"])
+        if not raw_path.exists():
+            conn.close()
+            flash("Raw file could not be found on disk.")
+            return redirect(url_for("tape_detail", tape_id=tape_id))
+
+        logging.info(
+            "Starting media processing",
+            extra={
+                "event": "media_processing_start",
+                "context": {
+                    "project_slug": g.active_project,
+                    "tape_id": tape_id,
+                    "tape_code": tape["tape_code"],
+                    "raw_path": str(raw_path),
+                },
+            },
+        )
+        metadata = get_video_metadata(raw_path)
+        tape_code = tape["tape_code"] or f"TAPE_{tape_id:04d}"
+        thumb_rel_path = f"thumbnails/{tape_code}.jpg"
+        thumb_path = g.project_paths["project_root"] / thumb_rel_path
+        thumbnail_result = generate_thumbnail(raw_path, thumb_path)
+        thumb_path_value = tape["thumb_path"] or ""
+        if thumbnail_result.status in {"created", "skipped"} and thumb_path.exists():
+            thumb_path_value = thumb_rel_path
+
+        conn.execute(
+            """
+            UPDATE tapes
+            SET duration_seconds = ?,
+                file_size_bytes = ?,
+                thumb_path = ?,
+                thumb_generated_at = CASE WHEN ? = 'created' THEN ? ELSE thumb_generated_at END
+            WHERE id = ?
+            """,
+            (
+                metadata.duration_seconds,
+                metadata.file_size_bytes,
+                thumb_path_value,
+                thumbnail_result.status,
+                datetime.utcnow().isoformat(timespec="seconds") + "Z",
+                tape_id,
+            ),
+        )
+
+        conn.execute(
+            """
+            UPDATE segment_suggestions
+            SET status = 'ignored', notes = 'superseded'
+            WHERE tape_id = ? AND status = 'open'
+            """,
+            (tape_id,),
+        )
+        suggestions = suggest_scene_segments(raw_path)
+        now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        for suggestion in suggestions:
+            conn.execute(
+                """
+                INSERT INTO segment_suggestions
+                    (tape_id, start_seconds, end_seconds, confidence, created_at, status, notes)
+                VALUES (?, ?, ?, ?, ?, 'open', '')
+                """,
+                (
+                    tape_id,
+                    suggestion.start_seconds,
+                    suggestion.end_seconds,
+                    suggestion.confidence,
+                    now,
+                ),
+            )
+        conn.execute(
+            "UPDATE tapes SET scene_suggested = ? WHERE id = ?",
+            (1 if suggestions else 0, tape_id),
+        )
+        if suggestions:
+            conn.execute(
+                "UPDATE review_items SET status = 'resolved' WHERE tape_id = ? AND type = 'needs_split_review' AND status = 'open'",
+                (tape_id,),
+            )
+            conn.execute(
+                """
+                INSERT INTO review_items (created_at, status, type, tape_id, message, payload_json)
+                VALUES (?, 'open', 'needs_split_review', ?, ?, NULL)
+                """,
+                (
+                    now,
+                    tape_id,
+                    f"Scene splits suggested for {tape_code}. Review and accept or ignore.",
+                ),
+            )
+        else:
+            conn.execute(
+                "UPDATE review_items SET status = 'resolved' WHERE tape_id = ? AND type = 'needs_split_review' AND status = 'open'",
+                (tape_id,),
+            )
+
+        conn.commit()
+        conn.close()
+        logging.info(
+            "Completed media processing",
+            extra={
+                "event": "media_processing_complete",
+                "context": {
+                    "project_slug": g.active_project,
+                    "tape_id": tape_id,
+                    "thumbnail_status": thumbnail_result.status,
+                    "suggestions_count": len(suggestions),
+                    "duration_seconds": metadata.duration_seconds,
+                    "file_size_bytes": metadata.file_size_bytes,
+                },
+            },
+        )
+
+        flash_message = thumbnail_result.message
+        if not is_ffmpeg_available():
+            flash_message = (
+                "ffmpeg not installed. Install with: brew install ffmpeg. "
+                "Metadata and file size were still updated."
+            )
+        elif suggestions:
+            flash_message = f"{thumbnail_result.message} Scene suggestions generated."
+        else:
+            flash_message = f"{thumbnail_result.message} No major scene changes detected."
+        flash(flash_message)
+        return redirect(url_for("tape_detail", tape_id=tape_id))
+
+    @app.route("/tapes/<int:tape_id>/accept_suggestions", methods=["POST"])
+    def accept_suggestions(tape_id: int) -> str:
+        """Convert open suggestions into segments and mark them accepted."""
+
+        conn = get_project_connection(g.active_project)
+        suggestions = conn.execute(
+            """
+            SELECT *
+            FROM segment_suggestions
+            WHERE tape_id = ? AND status = 'open'
+            ORDER BY start_seconds ASC
+            """,
+            (tape_id,),
+        ).fetchall()
+        if not suggestions:
+            conn.close()
+            flash("No open suggestions to accept.")
+            return redirect(url_for("tape_detail", tape_id=tape_id))
+        now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        for suggestion in suggestions:
+            conn.execute(
+                """
+                INSERT INTO segments
+                    (tape_id, start_seconds, end_seconds, title, created_by, created_at)
+                VALUES (?, ?, ?, '', 'system', ?)
+                """,
+                (
+                    tape_id,
+                    suggestion["start_seconds"],
+                    suggestion["end_seconds"],
+                    now,
+                ),
+            )
+        conn.execute(
+            "UPDATE segment_suggestions SET status = 'accepted' WHERE tape_id = ? AND status = 'open'",
+            (tape_id,),
+        )
+        conn.execute(
+            "UPDATE review_items SET status = 'resolved' WHERE tape_id = ? AND type = 'needs_split_review' AND status = 'open'",
+            (tape_id,),
+        )
+        tape_status = conn.execute(
+            "SELECT status FROM tapes WHERE id = ?", (tape_id,)
+        ).fetchone()
+        if tape_status and tape_status["status"] in {"New", "Ingested"}:
+            conn.execute(
+                "UPDATE tapes SET status = 'Mastered' WHERE id = ?", (tape_id,)
+            )
+        conn.commit()
+        conn.close()
+        flash("Suggestions accepted. Segments saved.")
+        return redirect(url_for("tape_detail", tape_id=tape_id))
+
+    @app.route("/tapes/<int:tape_id>/ignore_suggestions", methods=["POST"])
+    def ignore_suggestions(tape_id: int) -> str:
+        """Mark open suggestions as ignored."""
+
+        conn = get_project_connection(g.active_project)
+        conn.execute(
+            "UPDATE segment_suggestions SET status = 'ignored' WHERE tape_id = ? AND status = 'open'",
+            (tape_id,),
+        )
+        conn.execute(
+            "UPDATE review_items SET status = 'resolved' WHERE tape_id = ? AND type = 'needs_split_review' AND status = 'open'",
+            (tape_id,),
+        )
+        conn.commit()
+        conn.close()
+        flash("Suggestions ignored.")
+        return redirect(url_for("tape_detail", tape_id=tape_id))
 
     @app.route("/ingest")
     def ingest() -> str:
@@ -686,15 +951,20 @@ def create_app() -> Flask:
         needs_metadata_items = [
             item for item in items if item["type"] == "needs_metadata"
         ]
+        needs_split_items = [
+            item for item in items if item["type"] == "needs_split_review"
+        ]
         other_items = [
             item
             for item in items
-            if item["type"] not in {"needs_backup", "needs_metadata"}
+            if item["type"]
+            not in {"needs_backup", "needs_metadata", "needs_split_review"}
         ]
         return render_template(
             "review.html",
             needs_backup_items=needs_backup_items,
             needs_metadata_items=needs_metadata_items,
+            needs_split_items=needs_split_items,
             other_items=other_items,
             message=request.args.get("message"),
             status=request.args.get("status"),

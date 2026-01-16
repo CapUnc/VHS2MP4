@@ -16,6 +16,23 @@
 - Logs are written to `data/logs/app.log` by default.
 - Confirm the `data/logs/` directory is writable.
 
+## ffmpeg not installed
+
+- Thumbnails and scene suggestions require ffmpeg.
+- Install on macOS with: `brew install ffmpeg`.
+- The app remains usable without ffmpeg; media processing buttons will show a reminder.
+
+## ffmpeg errors during media processing
+
+- Check the project log file: `/Users/Sather/Documents/VHS2MP4/<project>/data/logs/app.log`.
+- Look for events like `thumbnail_failed` or `scene_detection_failed` for details.
+- Ensure the raw MP4 exists at the stored path and is readable.
+
+## Why files are not auto-split yet
+
+- Suggested splits are only stored as boundaries for review.
+- Actual file splitting will be added in a later phase once workflows are vetted.
+
 ## NAS not mounted
 
 - Ingest will still complete, but a review item of type `needs_backup` appears.
