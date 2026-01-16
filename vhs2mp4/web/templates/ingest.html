@@ -21,7 +21,7 @@
     </article>
   {% endif %}
   {% if inbox_files %}
-    <form method="post" action="{{ url_for('ingest_all') }}">
+    <form method="post" action="{{ url_for('ingest_start_all') }}">
       <button type="submit">Ingest All</button>
     </form>
     <table>
@@ -47,7 +47,7 @@
               {% endif %}
             </td>
             <td>
-              <form method="post" action="{{ url_for('ingest_file') }}">
+              <form method="post" action="{{ url_for('ingest_start_file') }}">
                 <input type="hidden" name="filename" value="{{ file.name }}" />
                 <label>
                   <small>Attach to Tape (optional)</small><br />

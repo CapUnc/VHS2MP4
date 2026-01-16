@@ -27,3 +27,18 @@
 7. Click **Export Segment Clips** and confirm files appear in `/Users/Sather/Documents/VHS2MP4/<project>/02_segments/<tape_code>/`.
 8. Confirm each segment row shows exported status in the Tape Details view.
 9. Click **Ignore Suggestions** on another tape and confirm suggestions are marked ignored and the review item is resolved.
+
+## Background job progress
+
+1. From **Ingest**, click **Ingest All** and confirm you are redirected to a progress page.
+2. Wait for the job to reach **Success** and confirm it redirects back to **Ingest**.
+3. From a Tape Details page, click **Generate Thumbnail + Suggest Scene Splits** and confirm the progress page updates step text and percent.
+4. After success, confirm you are redirected back to the tape detail page.
+5. Click **Export Segment Clips** and confirm progress updates while segments export.
+6. Simulate a failure (disconnect NAS or remove ffmpeg) and confirm the job status shows **Failed** with an error block.
+
+## Pending tests when real VHS videos are available
+
+- Scene split quality on home video content.
+- Export segments accuracy on long tapes.
+- Verify threshold/merge rules produce reasonable splits.
