@@ -66,6 +66,31 @@
       {% else %}
         <p>No major scene changes detected.</p>
       {% endif %}
+      <h4>Segments</h4>
+      {% if segments %}
+        {% if review_items %}
+          {% for item in review_items %}
+            {% if item.type == 'needs_export_review' and item.status == 'open' %}
+              <p><strong>Export needs review:</strong> {{ item.message }}</p>
+            {% endif %}
+          {% endfor %}
+        {% endif %}
+        <p><strong>Output Folder:</strong> {{ segments_output_dir }}</p>
+        <ul>
+          {% for segment in segments %}
+            {% set status = segment.export_status or 'not_exported' %}
+            <li>
+              Segment {{ loop.index }}: {{ format_timestamp(segment.start_seconds) }} to {{ format_timestamp(segment.end_seconds) }}
+              — {{ "Exported" if status == "exported" else "Not exported" }}
+            </li>
+          {% endfor %}
+        </ul>
+        <form method="post" action="{{ url_for('export_segments', tape_id=tape.id) }}">
+          <button type="submit">Export Segment Clips</button>
+        </form>
+      {% else %}
+        <p>No segments to export yet. Accept suggestions or create segments first.</p>
+      {% endif %}
     </article>
     <section>
       <h3>Review Queue</h3>

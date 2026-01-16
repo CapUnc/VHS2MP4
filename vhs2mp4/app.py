@@ -39,6 +39,7 @@ from vhs2mp4.db import (
 )
 from vhs2mp4.logging_setup import setup_logging
 from vhs2mp4.services.ingest import (
+    compute_sha256,
     format_bytes,
     ingest_inbox_file,
     list_inbox_files,
@@ -46,6 +47,7 @@ from vhs2mp4.services.ingest import (
     retry_backup,
 )
 from vhs2mp4.services.media import (
+    export_segment_clip,
     generate_thumbnail,
     get_video_metadata,
     is_ffmpeg_available,
@@ -154,6 +156,20 @@ def format_timestamp(seconds: float | None) -> str:
     if hours:
         return f"{hours}:{minutes:02d}:{secs:02d}"
     return f"{minutes:02d}:{secs:02d}"
+
+
+def build_output_metadata(output_path: Path) -> dict[str, str | int]:
+    """Return output metadata for an exported segment file."""
+
+    stats = output_path.stat()
+    generated_at = datetime.utcfromtimestamp(stats.st_mtime).isoformat(
+        timespec="seconds"
+    )
+    return {
+        "output_generated_at": f"{generated_at}Z",
+        "output_size_bytes": stats.st_size,
+        "output_sha256": compute_sha256(output_path),
+    }
 
 
 def determine_backup_status(tape_row, needs_backup_open: int) -> str:
@@ -623,10 +639,23 @@ def create_app() -> Flask:
             """,
             (tape_id,),
         ).fetchall()
+        segments = conn.execute(
+            """
+            SELECT *
+            FROM segments
+            WHERE tape_id = ?
+            ORDER BY start_seconds ASC
+            """,
+            (tape_id,),
+        ).fetchall()
         conn.close()
         if tape is None:
             return render_template(
-                "tape_detail.html", tape=None, review_items=[], suggestions=[]
+                "tape_detail.html",
+                tape=None,
+                review_items=[],
+                suggestions=[],
+                segments=[],
             )
         tags = []
         if tape["tags_json"]:
@@ -639,10 +668,15 @@ def create_app() -> Flask:
             tape=tape,
             review_items=review_items,
             suggestions=suggestions,
+            segments=segments,
             tags=tags,
             format_bytes=format_bytes,
             format_timestamp=format_timestamp,
             ffmpeg_available=is_ffmpeg_available(),
+            segments_output_dir=str(
+                g.project_paths["segments_dir"]
+                / (tape["tape_code"] or f"TAPE_{tape_id:04d}")
+            ),
         )
 
     @app.route("/tapes/<int:tape_id>/thumbnail")
@@ -875,6 +909,220 @@ def create_app() -> Flask:
         flash("Suggestions ignored.")
         return redirect(url_for("tape_detail", tape_id=tape_id))
 
+    @app.route("/tapes/<int:tape_id>/export_segments", methods=["POST"])
+    def export_segments(tape_id: int) -> str:
+        """Export segment clips for a tape."""
+
+        conn = get_project_connection(g.active_project)
+        tape = conn.execute("SELECT * FROM tapes WHERE id = ?", (tape_id,)).fetchone()
+        if not tape:
+            conn.close()
+            flash("Tape not found.")
+            return redirect(url_for("library"))
+        if not tape["raw_path"]:
+            conn.close()
+            flash("Raw file path missing. Ingest the tape before exporting segments.")
+            return redirect(url_for("tape_detail", tape_id=tape_id))
+        raw_path = Path(tape["raw_path"])
+        if not raw_path.exists():
+            conn.close()
+            flash("Raw file could not be found on disk.")
+            return redirect(url_for("tape_detail", tape_id=tape_id))
+
+        segments = conn.execute(
+            """
+            SELECT *
+            FROM segments
+            WHERE tape_id = ?
+            ORDER BY start_seconds ASC
+            """,
+            (tape_id,),
+        ).fetchall()
+        if not segments:
+            conn.close()
+            flash("No segments to export yet. Accept suggestions or create segments first.")
+            return redirect(url_for("tape_detail", tape_id=tape_id))
+
+        if not is_ffmpeg_available():
+            conn.close()
+            flash("ffmpeg is not installed. Install with: brew install ffmpeg.")
+            return redirect(url_for("tape_detail", tape_id=tape_id))
+
+        force = request.form.get("force") == "true"
+        tape_code = tape["tape_code"] or f"TAPE_{tape_id:04d}"
+        output_dir = g.project_paths["segments_dir"] / tape_code
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        exported_count = 0
+        skipped_count = 0
+        failed_count = 0
+        failures: list[dict[str, str]] = []
+        now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+        for index, segment in enumerate(segments, start=1):
+            output_path = output_dir / f"segment_{index:03d}.mp4"
+            duration = segment["end_seconds"] - segment["start_seconds"]
+            if output_path.exists() and not force:
+                skipped_count += 1
+                metadata = {}
+                if (
+                    not segment["output_generated_at"]
+                    or not segment["output_size_bytes"]
+                    or not segment["output_sha256"]
+                ):
+                    metadata = build_output_metadata(output_path)
+                conn.execute(
+                    """
+                    UPDATE segments
+                    SET output_path = ?,
+                        output_generated_at = COALESCE(?, output_generated_at),
+                        output_size_bytes = COALESCE(?, output_size_bytes),
+                        output_sha256 = COALESCE(?, output_sha256),
+                        export_status = 'exported'
+                    WHERE id = ?
+                    """,
+                    (
+                        str(output_path),
+                        metadata.get("output_generated_at"),
+                        metadata.get("output_size_bytes"),
+                        metadata.get("output_sha256"),
+                        segment["id"],
+                    ),
+                )
+                logging.info(
+                    "Segment export skipped (already exists)",
+                    extra={
+                        "event": "segment_export_skipped",
+                        "context": {
+                            "tape_id": tape_id,
+                            "segment_id": segment["id"],
+                            "output_path": str(output_path),
+                        },
+                    },
+                )
+                continue
+
+            result = export_segment_clip(
+                raw_path,
+                output_path,
+                segment["start_seconds"],
+                duration,
+                force=force,
+            )
+            if result.status == "exported" and output_path.exists():
+                exported_count += 1
+                metadata = build_output_metadata(output_path)
+                conn.execute(
+                    """
+                    UPDATE segments
+                    SET output_path = ?,
+                        output_generated_at = ?,
+                        output_size_bytes = ?,
+                        output_sha256 = ?,
+                        export_status = 'exported'
+                    WHERE id = ?
+                    """,
+                    (
+                        str(output_path),
+                        metadata["output_generated_at"],
+                        metadata["output_size_bytes"],
+                        metadata["output_sha256"],
+                        segment["id"],
+                    ),
+                )
+                logging.info(
+                    "Segment exported",
+                    extra={
+                        "event": "segment_exported",
+                        "context": {
+                            "tape_id": tape_id,
+                            "segment_id": segment["id"],
+                            "output_path": str(output_path),
+                            "used_fallback": result.used_fallback,
+                        },
+                    },
+                )
+                continue
+
+            failed_count += 1
+            failures.append(
+                {
+                    "segment_id": str(segment["id"]),
+                    "output_path": str(output_path),
+                    "message": result.message,
+                }
+            )
+            conn.execute(
+                """
+                UPDATE segments
+                SET output_path = ?,
+                    export_status = 'failed'
+                WHERE id = ?
+                """,
+                (str(output_path), segment["id"]),
+            )
+            logging.warning(
+                "Segment export failed",
+                extra={
+                    "event": "segment_export_failed",
+                    "context": {
+                        "tape_id": tape_id,
+                        "segment_id": segment["id"],
+                        "output_path": str(output_path),
+                        "message": result.message,
+                    },
+                },
+            )
+
+        if failed_count:
+            conn.execute(
+                """
+                UPDATE review_items
+                SET status = 'resolved'
+                WHERE tape_id = ?
+                  AND type = 'needs_export_review'
+                  AND status = 'open'
+                """,
+                (tape_id,),
+            )
+            conn.execute(
+                """
+                INSERT INTO review_items (created_at, status, type, tape_id, message, payload_json)
+                VALUES (?, 'open', 'needs_export_review', ?, ?, ?)
+                """,
+                (
+                    now,
+                    tape_id,
+                    f"{failed_count} segment export(s) failed for {tape_code}. Retry export.",
+                    json.dumps({"failures": failures}),
+                ),
+            )
+        else:
+            conn.execute(
+                """
+                UPDATE review_items
+                SET status = 'resolved'
+                WHERE tape_id = ?
+                  AND type = 'needs_export_review'
+                  AND status = 'open'
+                """,
+                (tape_id,),
+            )
+
+        conn.commit()
+        conn.close()
+        if failed_count:
+            flash(
+                f"Exported {exported_count} segment(s). "
+                f"{failed_count} failed. Output folder: {output_dir}"
+            )
+        else:
+            flash(
+                f"Exported {exported_count} segment(s); skipped {skipped_count} existing. "
+                f"Output folder: {output_dir}"
+            )
+        return redirect(url_for("tape_detail", tape_id=tape_id))
+
     @app.route("/ingest")
     def ingest() -> str:
         """Render the ingest queue from the project inbox."""
@@ -954,17 +1202,26 @@ def create_app() -> Flask:
         needs_split_items = [
             item for item in items if item["type"] == "needs_split_review"
         ]
+        needs_export_items = [
+            item for item in items if item["type"] == "needs_export_review"
+        ]
         other_items = [
             item
             for item in items
             if item["type"]
-            not in {"needs_backup", "needs_metadata", "needs_split_review"}
+            not in {
+                "needs_backup",
+                "needs_metadata",
+                "needs_split_review",
+                "needs_export_review",
+            }
         ]
         return render_template(
             "review.html",
             needs_backup_items=needs_backup_items,
             needs_metadata_items=needs_metadata_items,
             needs_split_items=needs_split_items,
+            needs_export_items=needs_export_items,
             other_items=other_items,
             message=request.args.get("message"),
             status=request.args.get("status"),

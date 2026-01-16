@@ -92,6 +92,11 @@ CREATE TABLE IF NOT EXISTS segments (
     title TEXT DEFAULT '',
     created_by TEXT NOT NULL,
     created_at TEXT NOT NULL,
+    output_path TEXT DEFAULT '',
+    output_generated_at TEXT,
+    output_size_bytes INTEGER,
+    output_sha256 TEXT,
+    export_status TEXT DEFAULT 'not_exported',
     FOREIGN KEY (tape_id) REFERENCES tapes(id)
 );
 """
@@ -277,10 +282,49 @@ def ensure_project_schema(conn: sqlite3.Connection, project_slug: str) -> None:
             title TEXT DEFAULT '',
             created_by TEXT NOT NULL,
             created_at TEXT NOT NULL,
+            output_path TEXT DEFAULT '',
+            output_generated_at TEXT,
+            output_size_bytes INTEGER,
+            output_sha256 TEXT,
+            export_status TEXT DEFAULT 'not_exported',
             FOREIGN KEY (tape_id) REFERENCES tapes(id)
         )
         """,
     )
+    segment_columns = {
+        row["name"] for row in conn.execute("PRAGMA table_info(segments)")
+    }
+    segment_migrations: list[str] = []
+    if "output_path" not in segment_columns:
+        conn.execute("ALTER TABLE segments ADD COLUMN output_path TEXT DEFAULT ''")
+        segment_migrations.append("segments.output_path")
+    if "output_generated_at" not in segment_columns:
+        conn.execute("ALTER TABLE segments ADD COLUMN output_generated_at TEXT")
+        segment_migrations.append("segments.output_generated_at")
+    if "output_size_bytes" not in segment_columns:
+        conn.execute("ALTER TABLE segments ADD COLUMN output_size_bytes INTEGER")
+        segment_migrations.append("segments.output_size_bytes")
+    if "output_sha256" not in segment_columns:
+        conn.execute("ALTER TABLE segments ADD COLUMN output_sha256 TEXT")
+        segment_migrations.append("segments.output_sha256")
+    if "export_status" not in segment_columns:
+        conn.execute(
+            "ALTER TABLE segments ADD COLUMN export_status TEXT DEFAULT 'not_exported'"
+        )
+        segment_migrations.append("segments.export_status")
+    if segment_migrations:
+        _clear_project_logs(project_slug)
+        for migration in segment_migrations:
+            logging.info(
+                "Applied project schema migration",
+                extra={
+                    "event": "project_schema_migrated",
+                    "context": {
+                        "project_slug": project_slug,
+                        "migration": migration,
+                    },
+                },
+            )
 
 
 def _create_table_if_missing(

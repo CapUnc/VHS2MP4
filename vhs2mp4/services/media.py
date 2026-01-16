@@ -44,6 +44,16 @@ class SceneSuggestion:
     confidence: float | None
 
 
+@dataclass(frozen=True)
+class SegmentExportResult:
+    """Result of a segment export attempt."""
+
+    status: str
+    message: str
+    output_path: Path | None
+    used_fallback: bool
+
+
 def is_ffmpeg_available() -> bool:
     """Return True if ffmpeg is available on the PATH."""
 
@@ -78,6 +88,103 @@ def _run_subprocess(args: list[str], timeout: int = 30) -> subprocess.CompletedP
         text=True,
         timeout=timeout,
         check=False,
+    )
+
+
+def export_segment_clip(
+    input_path: Path,
+    output_path: Path,
+    start_seconds: float,
+    duration_seconds: float,
+    force: bool = False,
+) -> SegmentExportResult:
+    """Export a segment clip using ffmpeg with copy then re-encode fallback."""
+
+    if duration_seconds <= 0:
+        return SegmentExportResult(
+            status="failed",
+            message="Segment duration must be greater than zero.",
+            output_path=None,
+            used_fallback=False,
+        )
+    ffmpeg = _ffmpeg_path()
+    if not ffmpeg:
+        return SegmentExportResult(
+            status="unavailable",
+            message="ffmpeg is not installed. Install with: brew install ffmpeg",
+            output_path=None,
+            used_fallback=False,
+        )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    overwrite_flag = "-y" if force else "-n"
+    base_args = [
+        ffmpeg,
+        overwrite_flag,
+        "-ss",
+        f"{start_seconds:.3f}",
+        "-i",
+        str(input_path),
+        "-t",
+        f"{duration_seconds:.3f}",
+    ]
+    copy_args = base_args + ["-c", "copy", str(output_path)]
+    result = _run_subprocess(copy_args, timeout=180)
+    if result.returncode == 0 and output_path.exists():
+        return SegmentExportResult(
+            status="exported",
+            message="Segment exported with stream copy.",
+            output_path=output_path,
+            used_fallback=False,
+        )
+    if output_path.exists():
+        try:
+            output_path.unlink()
+        except OSError:
+            logger.warning(
+                "Failed to remove partial segment output",
+                extra={
+                    "event": "segment_export_cleanup_failed",
+                    "context": {"path": str(output_path)},
+                },
+            )
+    logger.warning(
+        "Segment export stream copy failed; attempting re-encode",
+        extra={
+            "event": "segment_export_copy_failed",
+            "context": {
+                "input_path": str(input_path),
+                "output_path": str(output_path),
+                "returncode": result.returncode,
+                "stderr": result.stderr.strip(),
+            },
+        },
+    )
+    encode_args = base_args + [
+        "-c:v",
+        "libx264",
+        "-preset",
+        "medium",
+        "-crf",
+        "22",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "192k",
+        str(output_path),
+    ]
+    fallback = _run_subprocess(encode_args, timeout=300)
+    if fallback.returncode == 0 and output_path.exists():
+        return SegmentExportResult(
+            status="exported",
+            message="Segment exported with re-encode fallback.",
+            output_path=output_path,
+            used_fallback=True,
+        )
+    return SegmentExportResult(
+        status="failed",
+        message="Segment export failed. Check logs for details.",
+        output_path=None,
+        used_fallback=True,
     )
 
 

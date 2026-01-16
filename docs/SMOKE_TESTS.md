@@ -24,4 +24,6 @@
 4. Confirm the Tape Detail view shows the thumbnail image.
 5. Confirm suggested splits appear (or the empty-state message if none detected).
 6. Click **Accept Suggestions** and verify segments rows exist in the database.
-7. Click **Ignore Suggestions** on another tape and confirm suggestions are marked ignored and the review item is resolved.
+7. Click **Export Segment Clips** and confirm files appear in `/Users/Sather/Documents/VHS2MP4/<project>/02_segments/<tape_code>/`.
+8. Confirm each segment row shows exported status in the Tape Details view.
+9. Click **Ignore Suggestions** on another tape and confirm suggestions are marked ignored and the review item is resolved.

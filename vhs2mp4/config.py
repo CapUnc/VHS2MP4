@@ -61,6 +61,7 @@ def get_project_paths(project_slug: str) -> Dict[str, Path]:
     """Return all local and NAS paths for a given project."""
 
     project_root = BASE_LOCAL_ROOT / project_slug
+    segments_dir = project_root / "02_segments"
     thumbnails_dir = project_root / "thumbnails"
     data_dir = project_root / "data"
     db_path = data_dir / "vhs2mp4.db"
@@ -72,6 +73,7 @@ def get_project_paths(project_slug: str) -> Dict[str, Path]:
         "thumbnails_dir": thumbnails_dir,
         "data_dir": data_dir,
         "raw_dir": project_root / "01_raw",
+        "segments_dir": segments_dir,
         "master_dir": project_root / "02_master",
         "work_dir": project_root / "03_work",
         "final_dir": project_root / "04_final",
@@ -119,6 +121,7 @@ def ensure_local_project_dirs(project_slug: str) -> Dict[str, Path]:
         paths["thumbnails_dir"],
         paths["data_dir"],
         paths["raw_dir"],
+        paths["segments_dir"],
         paths["master_dir"],
         paths["work_dir"],
         paths["final_dir"],
