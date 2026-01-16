@@ -347,6 +347,10 @@ def ingest_inbox_file(
             },
         )
 
+    # Commit metadata writes promptly so we do not hold a long write transaction
+    # while file operations and progress updates are running.
+    conn.commit()
+
     _report_progress(progress, 85, "NAS backup attempt", "Copying to NAS")
     backup_status = "backed_up"
     success, nas_path, error = _attempt_nas_backup(project_slug, raw_destination)
@@ -372,6 +376,7 @@ def ingest_inbox_file(
         "UPDATE tapes SET backup_status = ? WHERE id = ?",
         (backup_status, created_tape_id),
     )
+    conn.commit()
 
     logger.info(
         "Ingest completed",

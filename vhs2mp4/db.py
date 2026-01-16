@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -155,13 +156,28 @@ def get_project_db_path(project_slug: str) -> Path:
     return get_project_paths(project_slug)["db_path"]
 
 
+def _configure_project_connection(conn: sqlite3.Connection) -> None:
+    """Apply WAL + timeout settings to reduce lock contention."""
+
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute("PRAGMA foreign_keys=ON")
+
+
 def get_project_connection(project_slug: str) -> sqlite3.Connection:
     """Create a SQLite connection for a project database."""
 
     ensure_local_project_dirs(project_slug)
     db_path = get_project_db_path(project_slug)
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn = sqlite3.connect(
+        db_path,
+        timeout=30,
+        detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES,
+        check_same_thread=True,
+    )
+    _configure_project_connection(conn)
     return conn
 
 
@@ -530,13 +546,17 @@ def update_job(
     result: dict | None = None,
     error: str | None = None,
     project_slug: str | None = None,
+    conn: sqlite3.Connection | None = None,
 ) -> None:
     """Update fields on a background job."""
 
-    slug = project_slug or get_active_project()
-    if not slug:
-        raise RuntimeError("No active project available to update job.")
-    conn = get_project_connection(slug)
+    should_close = False
+    if conn is None:
+        slug = project_slug or get_active_project()
+        if not slug:
+            raise RuntimeError("No active project available to update job.")
+        conn = get_project_connection(slug)
+        should_close = True
     try:
         fields: list[str] = []
         values: list[object] = []
@@ -572,10 +592,25 @@ def update_job(
         if not fields:
             return
         values.append(job_id)
-        conn.execute(f"UPDATE jobs SET {', '.join(fields)} WHERE id = ?", values)
-        conn.commit()
+        statement = f"UPDATE jobs SET {', '.join(fields)} WHERE id = ?"
+        max_retries = 50
+        for attempt in range(max_retries):
+            try:
+                conn.execute(statement, values)
+                conn.commit()
+                break
+            except sqlite3.OperationalError as exc:
+                if "database is locked" not in str(exc).lower():
+                    raise
+                if attempt == max_retries - 1:
+                    raise RuntimeError(
+                        "Database is locked after retries while updating job progress. "
+                        "Database busy, retrying..."
+                    ) from exc
+                time.sleep(0.1)
     finally:
-        conn.close()
+        if should_close:
+            conn.close()
 
 
 def get_job(job_id: int, project_slug: str | None = None) -> dict | None:

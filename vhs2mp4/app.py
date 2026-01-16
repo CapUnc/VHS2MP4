@@ -51,7 +51,7 @@ from vhs2mp4.services.ingest import (
     list_unassigned_tapes,
     retry_backup,
 )
-from vhs2mp4.services.jobs import enqueue_job, job_progress
+from vhs2mp4.services.jobs import enqueue_job
 from vhs2mp4.services.media import (
     export_segment_clip,
     generate_thumbnail,
@@ -1187,16 +1187,7 @@ def create_app() -> Flask:
         project_paths = get_project_paths(project_slug)
         back_url = request.referrer or url_for("tape_detail", tape_id=tape_id)
 
-        def run_job(conn) -> dict:
-            def progress(percent: int, step: str, detail: str) -> None:
-                job_progress(
-                    job_id,
-                    percent,
-                    step,
-                    detail,
-                    project_slug=project_slug,
-                )
-
+        def run_job(conn, progress) -> dict:
             result = _process_media_for_tape(
                 conn, project_slug, project_paths, tape_id, progress=progress
             )
@@ -1223,16 +1214,7 @@ def create_app() -> Flask:
         project_paths = get_project_paths(project_slug)
         back_url = request.referrer or url_for("tape_detail", tape_id=tape_id)
 
-        def run_job(conn) -> dict:
-            def progress(percent: int, step: str, detail: str) -> None:
-                job_progress(
-                    job_id,
-                    percent,
-                    step,
-                    detail,
-                    project_slug=project_slug,
-                )
-
+        def run_job(conn, progress) -> dict:
             result = _export_segments_for_tape(
                 conn,
                 project_slug,
@@ -1355,16 +1337,7 @@ def create_app() -> Flask:
         )
         back_url = request.referrer or url_for("ingest")
 
-        def run_job(conn) -> dict:
-            def progress(percent: int, step: str, detail: str) -> None:
-                job_progress(
-                    job_id,
-                    percent,
-                    step,
-                    detail,
-                    project_slug=project_slug,
-                )
-
+        def run_job(conn, progress) -> dict:
             result = ingest_inbox_file(
                 conn,
                 project_slug,
@@ -1420,7 +1393,7 @@ def create_app() -> Flask:
         )
         back_url = request.referrer or url_for("ingest")
 
-        def run_job(conn) -> dict:
+        def run_job(conn, progress) -> dict:
             inbox_files = list_inbox_files(conn, project_slug)
             new_files = [
                 inbox_file for inbox_file in inbox_files if inbox_file.status == "new"
@@ -1437,23 +1410,17 @@ def create_app() -> Flask:
             for index, inbox_file in enumerate(new_files, start=1):
                 filename = inbox_file.name
 
-                def progress(
+                def file_progress(
                     percent: int, step: str, detail: str, label: str = filename
                 ) -> None:
                     overall = int(((index - 1) + (percent / 100)) / total * 100)
-                    job_progress(
-                        job_id,
-                        overall,
-                        step,
-                        f"{label}: {detail}",
-                        project_slug=project_slug,
-                    )
+                    progress(overall, step, f"{label}: {detail}")
 
                 result = ingest_inbox_file(
                     conn,
                     project_slug,
                     filename,
-                    progress=progress,
+                    progress=file_progress,
                 )
                 if result.get("status") == "ingested":
                     ingested += 1

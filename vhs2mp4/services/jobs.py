@@ -7,6 +7,8 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 
+import sqlite3
+
 from vhs2mp4.db import get_project_connection, update_job
 
 logger = logging.getLogger(__name__)
@@ -20,8 +22,19 @@ def enqueue_job(project_slug: str, job_id: int, job_callable: Callable) -> None:
     def _run_job() -> None:
         conn = get_project_connection(project_slug)
         try:
-            update_job(job_id, status="running", project_slug=project_slug)
-            result = job_callable(conn)
+            def progress(percent: int, step: str, detail: str) -> None:
+                # Use the same connection as the job work to keep a single-writer.
+                job_progress(
+                    job_id,
+                    percent,
+                    step,
+                    detail,
+                    conn=conn,
+                    project_slug=project_slug,
+                )
+
+            update_job(job_id, status="running", project_slug=project_slug, conn=conn)
+            result = job_callable(conn, progress)
             conn.commit()
             update_job(
                 job_id,
@@ -29,6 +42,7 @@ def enqueue_job(project_slug: str, job_id: int, job_callable: Callable) -> None:
                 percent=100,
                 result=result if isinstance(result, dict) else {},
                 project_slug=project_slug,
+                conn=conn,
             )
         except Exception as exc:  # noqa: BLE001
             conn.rollback()
@@ -45,6 +59,7 @@ def enqueue_job(project_slug: str, job_id: int, job_callable: Callable) -> None:
                 status="failed",
                 error=error_text,
                 project_slug=project_slug,
+                conn=conn,
             )
         finally:
             conn.close()
@@ -58,6 +73,7 @@ def job_progress(
     step: str,
     detail: str = "",
     project_slug: str | None = None,
+    conn: sqlite3.Connection | None = None,
 ) -> None:
     """Update progress for a running job."""
 
@@ -67,4 +83,5 @@ def job_progress(
         step=step,
         detail=detail,
         project_slug=project_slug,
+        conn=conn,
     )
