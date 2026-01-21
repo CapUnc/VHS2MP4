@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import io
 from collections import Counter
 from datetime import datetime
 import json
@@ -16,6 +17,7 @@ from flask import (
     flash,
     g,
     jsonify,
+    make_response,
     redirect,
     render_template,
     request,
@@ -62,6 +64,7 @@ from vhs2mp4.services.media import (
 
 STATUS_OPTIONS = ("New", "Ingested", "Mastered", "Reviewed", "Final")
 DATE_TYPE_OPTIONS = ("exact", "range", "unknown")
+SORT_OPTIONS = ("created", "title", "status", "date")
 
 EXPORT_COLUMNS = (
     "tape_code",
@@ -148,6 +151,112 @@ def serialize_tags(tags_json: str | None) -> str:
         return ""
     cleaned = [tag.strip() for tag in tags if isinstance(tag, str) and tag.strip()]
     return ", ".join(cleaned)
+
+
+def parse_tags(tags_json: str | None) -> list[str]:
+    """Return a cleaned list of tags from stored JSON."""
+
+    if not tags_json:
+        return []
+    try:
+        tags = json.loads(tags_json)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(tags, list):
+        return []
+    return [tag.strip() for tag in tags if isinstance(tag, str) and tag.strip()]
+
+
+def format_tape_date(tape_row) -> str:
+    """Return the best available date label for a tape row."""
+
+    if tape_row["date_type"] == "exact" and tape_row["date_exact"]:
+        return tape_row["date_exact"]
+    if tape_row["date_type"] == "range" and (
+        tape_row["date_start"] or tape_row["date_end"]
+    ):
+        start = tape_row["date_start"] or "?"
+        end = tape_row["date_end"] or "?"
+        return f"{start} → {end}"
+    return "Unknown"
+
+
+def build_library_query(args) -> tuple[str, list[str], dict[str, str]]:
+    """Build a filter clause and view state for the library table."""
+
+    query = args.get("q", "").strip()
+    status = args.get("status", "All")
+    tag_filter = args.get("tag", "All").strip()
+    sort = args.get("sort", "created")
+    direction = args.get("dir")
+
+    if status not in STATUS_OPTIONS:
+        status = "All"
+    if not tag_filter:
+        tag_filter = "All"
+    if sort not in SORT_OPTIONS:
+        sort = "created"
+    if direction not in {"asc", "desc"}:
+        # Default to newest first for created, otherwise A→Z.
+        direction = "desc" if sort == "created" else "asc"
+
+    filters: list[str] = []
+    params: list[str] = []
+
+    if query:
+        # Use a single LIKE query for broad matching that is easy to debug.
+        like_query = f"%{query.lower()}%"
+        filters.append(
+            "("
+            "LOWER(tapes.title) LIKE ? OR "
+            "LOWER(tapes.tape_label_text) LIKE ? OR "
+            "LOWER(tapes.source_label) LIKE ? OR "
+            "LOWER(tapes.notes) LIKE ? OR "
+            "LOWER(tapes.tags_json) LIKE ?"
+            ")"
+        )
+        params.extend(
+            [like_query, like_query, like_query, like_query, like_query]
+        )
+
+    if status in STATUS_OPTIONS:
+        filters.append("tapes.status = ?")
+        params.append(status)
+
+    if tag_filter != "All":
+        # Stored as JSON, so LIKE keeps the filter easy to reason about.
+        filters.append("LOWER(tapes.tags_json) LIKE ?")
+        params.append(f"%{tag_filter.lower()}%")
+
+    where_clause = "WHERE " + " AND ".join(filters) if filters else ""
+
+    sort_map = {
+        "created": "tapes.created_at",
+        "title": "LOWER(tapes.title)",
+        "status": "tapes.status",
+        "date": "COALESCE(tapes.date_exact, tapes.date_start, tapes.date_end)",
+    }
+    if sort == "date":
+        unknown_clause = (
+            "CASE WHEN tapes.date_type = 'unknown' OR tapes.date_type IS NULL "
+            "THEN 1 ELSE 0 END"
+        )
+        order_by = (
+            f"{unknown_clause}, {sort_map[sort]} {direction.upper()}, "
+            "tapes.created_at DESC"
+        )
+    else:
+        order_by = f"{sort_map[sort]} {direction.upper()}, tapes.created_at DESC"
+
+    view_state = {
+        "query": query,
+        "status": status,
+        "tag_filter": tag_filter,
+        "sort": sort,
+        "direction": direction,
+        "order_by": order_by,
+    }
+    return where_clause, params, view_state
 
 
 def format_timestamp(seconds: float | None) -> str:
@@ -765,64 +874,114 @@ def create_app() -> Flask:
     @app.route("/")
     def library() -> str:
         """Render the library list."""
+        where_clause, params, view_state = build_library_query(request.args)
 
-        query = request.args.get("q", "").strip()
-        status = request.args.get("status", "All")
-        date_type = request.args.get("date_type", "All")
-        issues_only = request.args.get("issues") == "1"
-
-        filters = []
-        params: list[str] = []
-
-        if query:
-            # Use a single LIKE query for broad matching that is easy to debug.
-            like_query = f"%{query.lower()}%"
-            filters.append(
-                "("
-                "LOWER(tapes.title) LIKE ? OR "
-                "LOWER(tapes.tape_label_text) LIKE ? OR "
-                "LOWER(tapes.source_label) LIKE ? OR "
-                "LOWER(tapes.notes) LIKE ? OR "
-                "LOWER(tapes.tags_json) LIKE ?"
-                ")"
-            )
-            params.extend(
-                [like_query, like_query, like_query, like_query, like_query]
-            )
-
-        if status in STATUS_OPTIONS:
-            filters.append("tapes.status = ?")
-            params.append(status)
-
-        if date_type in DATE_TYPE_OPTIONS:
-            filters.append("tapes.date_type = ?")
-            params.append(date_type)
-
-        if issues_only:
-            # Use EXISTS to avoid joining review items unless needed.
-            filters.append(
-                "EXISTS (SELECT 1 FROM review_items "
-                "WHERE review_items.tape_id = tapes.id "
-                "AND review_items.status = 'open')"
-            )
-
-        where_clause = "WHERE " + " AND ".join(filters) if filters else ""
         conn = get_project_connection(g.active_project)
         tapes = conn.execute(
-            "SELECT id, title, source_label, date_type, date_exact, date_start, date_end, "
-            "date_locked, created_at, status FROM tapes "
-            f"{where_clause} ORDER BY created_at DESC",
+            "SELECT id, tape_code, title, tape_label_text, source_label, notes, "
+            "date_type, date_exact, date_start, date_end, date_locked, created_at, "
+            "status, tags_json, raw_path "
+            "FROM tapes "
+            f"{where_clause} ORDER BY {view_state['order_by']}",
+            params,
+        ).fetchall()
+        tag_suggestions = get_tag_suggestions(conn)
+        conn.close()
+
+        tape_rows = []
+        for tape in tapes:
+            tags = parse_tags(tape["tags_json"])
+            tape_rows.append(
+                {
+                    "id": tape["id"],
+                    "tape_code": tape["tape_code"] or f"TAPE_{tape['id']:04d}",
+                    "title": tape["title"] or "",
+                    "status": tape["status"] or "",
+                    "tags": tags,
+                    "source_label": tape["source_label"],
+                    "date_label": format_tape_date(tape),
+                    "date_locked": bool(tape["date_locked"]),
+                    "created_at": tape["created_at"] or "",
+                    "notes": tape["notes"] or "",
+                    "raw_path": tape["raw_path"] or "",
+                }
+            )
+
+        if view_state["tag_filter"] != "All" and view_state["tag_filter"] not in tag_suggestions:
+            tag_suggestions = [view_state["tag_filter"]] + tag_suggestions
+
+        export_params = {
+            "q": view_state["query"],
+            "status": view_state["status"],
+            "tag": view_state["tag_filter"],
+            "sort": view_state["sort"],
+            "dir": view_state["direction"],
+        }
+        export_url = f"{url_for('library_csv')}?{urlencode(export_params)}"
+
+        return render_template(
+            "library.html",
+            tapes=tape_rows,
+            query=view_state["query"],
+            status=view_state["status"],
+            tag_filter=view_state["tag_filter"],
+            sort=view_state["sort"],
+            direction=view_state["direction"],
+            tag_suggestions=tag_suggestions,
+            export_url=export_url,
+        )
+
+    @app.route("/library.csv")
+    def library_csv():
+        """Export the current library filters as CSV."""
+
+        where_clause, params, view_state = build_library_query(request.args)
+        conn = get_project_connection(g.active_project)
+        tapes = conn.execute(
+            "SELECT id, tape_code, title, source_label, notes, date_type, date_exact, "
+            "date_start, date_end, date_locked, created_at, status, tags_json, raw_path "
+            "FROM tapes "
+            f"{where_clause} ORDER BY {view_state['order_by']}",
             params,
         ).fetchall()
         conn.close()
-        return render_template(
-            "library.html",
-            tapes=tapes,
-            query=query,
-            status=status,
-            date_type=date_type,
-            issues_only=issues_only,
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(
+            [
+                "Tape ID",
+                "Title",
+                "Status",
+                "Tags",
+                "Date",
+                "Created",
+                "Source Label",
+                "Notes",
+                "Raw Path",
+            ]
         )
+        for tape in tapes:
+            tape_code = tape["tape_code"] or f"TAPE_{tape['id']:04d}"
+            writer.writerow(
+                [
+                    tape_code,
+                    tape["title"] or "",
+                    tape["status"] or "",
+                    ", ".join(parse_tags(tape["tags_json"])),
+                    format_tape_date(tape),
+                    tape["created_at"] or "",
+                    tape["source_label"] or "",
+                    tape["notes"] or "",
+                    tape["raw_path"] or "",
+                ]
+            )
+
+        response = make_response(output.getvalue())
+        filename = f"library_{g.active_project}.csv"
+        response.headers["Content-Disposition"] = f"attachment; filename={filename}"
+        response.headers["Content-Type"] = "text/csv"
+        return response
 
     @app.route("/export")
     def export_master() -> str:

@@ -3,7 +3,16 @@
 {% block content %}
 <section>
   <h2>Library</h2>
-  <p>Overview of all tapes in the system.</p>
+  <p>Master table view for every tape in the active project.</p>
+  <div class="library-help">
+    <h3>How to use this page effectively</h3>
+    <ul>
+      <li>Use tags for topics, people, or locations so you can group work quickly.</li>
+      <li>Use status to track workflow progress across the project.</li>
+      <li>Use search when you remember a phrase from the title or notes.</li>
+      <li>Export CSV for sharing or bulk review with collaborators.</li>
+    </ul>
+  </div>
   <form method="get">
     <div class="grid">
       <label>
@@ -11,7 +20,7 @@
         <input
           type="search"
           name="q"
-          placeholder="Search title, notes, tags..."
+          placeholder="Search title, notes, source label, tags..."
           value="{{ query }}"
         />
       </label>
@@ -27,51 +36,88 @@
         </select>
       </label>
       <label>
-        Date Type
-        <select name="date_type">
-          <option value="All" {% if date_type == "All" %}selected{% endif %}>All</option>
-          <option value="exact" {% if date_type == "exact" %}selected{% endif %}>Exact</option>
-          <option value="range" {% if date_type == "range" %}selected{% endif %}>Range</option>
-          <option value="unknown" {% if date_type == "unknown" %}selected{% endif %}>Unknown</option>
+        Tag
+        <select name="tag">
+          <option value="All" {% if tag_filter == "All" %}selected{% endif %}>All</option>
+          {% for tag in tag_suggestions %}
+            <option value="{{ tag }}" {% if tag_filter == tag %}selected{% endif %}>{{ tag }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+    <div class="grid">
+      <label>
+        Sort by
+        <select name="sort">
+          <option value="created" {% if sort == "created" %}selected{% endif %}>Created</option>
+          <option value="title" {% if sort == "title" %}selected{% endif %}>Title</option>
+          <option value="status" {% if sort == "status" %}selected{% endif %}>Status</option>
+          <option value="date" {% if sort == "date" %}selected{% endif %}>Date</option>
         </select>
       </label>
       <label>
-        <input type="checkbox" name="issues" value="1" {% if issues_only %}checked{% endif %} />
-        Has Issues
+        Order
+        <select name="dir">
+          <option value="asc" {% if direction == "asc" %}selected{% endif %}>A → Z</option>
+          <option value="desc" {% if direction == "desc" %}selected{% endif %}>Z → A</option>
+        </select>
       </label>
     </div>
-    <button type="submit">Apply</button>
-    <a class="secondary" href="{{ url_for('library') }}">Clear filters</a>
+    <div class="library-actions">
+      <button type="submit">Apply</button>
+      <a class="secondary" href="{{ url_for('library') }}">Clear filters</a>
+      <a class="secondary" href="{{ export_url }}">Export CSV</a>
+    </div>
   </form>
   {% if tapes %}
-  <table>
+  <table class="library-table">
     <thead>
       <tr>
+        <th>Tape ID</th>
         <th>Title</th>
-        <th>Source Label</th>
-        <th>Date</th>
-        <th>Locked</th>
         <th>Status</th>
+        <th>Tags</th>
+        <th>Date</th>
         <th>Created</th>
+        <th>Source Label</th>
       </tr>
     </thead>
     <tbody>
       {% for tape in tapes %}
       <tr>
-        <td><a href="{{ url_for('tape_detail', tape_id=tape.id) }}">{{ tape.title }}</a></td>
-        <td>{{ tape.source_label or "—" }}</td>
         <td>
-          {% if tape.date_type == 'exact' %}
-            {{ tape.date_exact }}
-          {% elif tape.date_type == 'range' %}
-            {{ tape.date_start }} → {{ tape.date_end }}
+          <a class="library-tape-code" href="{{ url_for('tape_detail', tape_id=tape.id) }}">
+            {{ tape.tape_code }}
+          </a>
+        </td>
+        <td><span class="library-title">{{ tape.title or "Untitled" }}</span></td>
+        <td>
+          <span class="status-pill status-pill--{{ tape.status | lower }}">
+            {{ tape.status or "Unknown" }}
+          </span>
+        </td>
+        <td>
+          {% if tape.tags %}
+            <div class="library-tags">
+              {% for tag in tape.tags[:3] %}
+                <span class="library-tag">{{ tag }}</span>
+              {% endfor %}
+              {% if tape.tags | length > 3 %}
+                <span class="library-tag library-tag--more">+{{ tape.tags | length - 3 }}</span>
+              {% endif %}
+            </div>
           {% else %}
-            Unknown
+            <span class="library-muted">—</span>
           {% endif %}
         </td>
-        <td>{{ "Yes" if tape.date_locked else "No" }}</td>
-        <td>{{ tape.status }}</td>
+        <td class="library-date">
+          {{ tape.date_label }}
+          {% if tape.date_locked %}
+            <span class="library-lock" title="Date locked">🔒</span>
+          {% endif %}
+        </td>
         <td>{{ tape.created_at }}</td>
+        <td><span class="library-source">{{ tape.source_label or "—" }}</span></td>
       </tr>
       {% endfor %}
     </tbody>
