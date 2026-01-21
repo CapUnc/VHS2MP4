@@ -140,6 +140,18 @@
         background: rgba(100, 116, 139, 0.25);
         color: #e2e8f0;
       }
+      .status-pill--mastered {
+        background: rgba(59, 130, 246, 0.2);
+        color: #bfdbfe;
+      }
+      .status-pill--reviewed {
+        background: rgba(234, 179, 8, 0.2);
+        color: #fde68a;
+      }
+      .status-pill--final {
+        background: rgba(16, 185, 129, 0.2);
+        color: #a7f3d0;
+      }
       .status-pill--error {
         background: rgba(239, 68, 68, 0.2);
         color: #fecaca;
@@ -172,6 +184,103 @@
       .nas-pill--unavailable {
         background: rgba(234, 179, 8, 0.2);
         color: #fde68a;
+      }
+      /* Library master table tweaks keep rows compact and readable. */
+      .library-help {
+        padding: 1rem 1.25rem;
+        border-radius: 0.75rem;
+        border: 1px solid var(--pico-muted-border-color, #1f2937);
+        background: rgba(15, 23, 42, 0.35);
+        margin-bottom: 1.5rem;
+      }
+      .library-help ul {
+        margin: 0.5rem 0 0;
+        padding-left: 1.25rem;
+      }
+      .library-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        align-items: center;
+        margin-top: 0.75rem;
+      }
+      .library-table {
+        table-layout: fixed;
+      }
+      .library-table thead th {
+        position: sticky;
+        top: 0;
+        background: var(--pico-card-background-color, #111827);
+        z-index: 1;
+      }
+      .library-table th,
+      .library-table td {
+        padding: 0.45rem 0.6rem;
+        vertical-align: top;
+      }
+      .library-table tbody tr {
+        border-bottom: 1px solid var(--pico-muted-border-color, #1f2937);
+      }
+      .library-table th:nth-child(1) {
+        width: 12%;
+      }
+      .library-table th:nth-child(2) {
+        width: 18%;
+      }
+      .library-table th:nth-child(3) {
+        width: 10%;
+      }
+      .library-table th:nth-child(4) {
+        width: 18%;
+      }
+      .library-table th:nth-child(5) {
+        width: 12%;
+      }
+      .library-table th:nth-child(6) {
+        width: 14%;
+      }
+      .library-table th:nth-child(7) {
+        width: 16%;
+      }
+      .library-tape-code,
+      .library-title,
+      .library-source {
+        display: block;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .library-title {
+        font-weight: 600;
+      }
+      .library-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem;
+      }
+      .library-tag {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.15rem 0.45rem;
+        border-radius: 999px;
+        font-size: 0.7rem;
+        background: rgba(148, 163, 184, 0.2);
+        color: var(--pico-muted-color, #cbd5f5);
+      }
+      .library-tag--more {
+        background: rgba(59, 130, 246, 0.15);
+        color: #bfdbfe;
+      }
+      .library-muted {
+        color: var(--pico-muted-color, #94a3b8);
+      }
+      .library-date {
+        white-space: nowrap;
+      }
+      .library-lock {
+        margin-left: 0.35rem;
+        font-size: 0.8rem;
+        opacity: 0.7;
       }
     </style>
     <script src="{{ url_for('static', filename='app.js') }}" defer></script>
